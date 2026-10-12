@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: eventhub
+      POSTGRES_USER: eventhub
+      POSTGRES_PASSWORD: eventhub_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - eventhub_pg:/var/lib/postgresql/data
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://eventhub:eventhub_dev@postgres:5432/eventhub
+      JWT_SECRET: eventhub-local-secret-change-me
+      ADMIN_EMAIL: admin@eventhub.local
+      ADMIN_PASSWORD: Admin@123
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+volumes:
+  eventhub_pg:
