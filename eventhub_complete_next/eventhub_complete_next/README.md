@@ -97,3 +97,9 @@ large entry file:
 
 Keep new page-specific behavior in its feature folder, use `components/` for shared UI, and add
 backend communication through `api/client.ts` rather than duplicating fetch/token logic.
+
+## Product requirements and Copilot guidance
+
+- [EventHub product and feature specification](./docs/eventhub-product-spec.md) contains feature requirements, acceptance scenarios, entities, and Mermaid data-flow diagrams.
+- [EventHub Product Engineer agent](./.github/agents/eventhub-product.agent.md) provides repository-specific implementation guidance.
+- [EventHub product skill](./.github/skills/eventhub-product/SKILL.md) provides the feature-tracing and documentation workflow.
