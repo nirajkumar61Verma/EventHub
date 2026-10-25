@@ -9,6 +9,13 @@ services:
       - "5432:5432"
     volumes:
       - eventhub_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventhub -d eventhub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
   backend:
     build: ./backend
     environment:
@@ -19,12 +26,16 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
   frontend:
     build: ./frontend
     ports:
       - "5173:5173"
     depends_on:
       - backend
+
 volumes:
   eventhub_pg:
