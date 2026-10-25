@@ -25,7 +25,7 @@ EventHub helps customers plan celebrations, discover event-service providers, re
 - **REQ-002 (P1):** A registered user can sign in; disabled accounts are denied access.
 - **REQ-003 (P2):** A signed-in user can view and update their profile and notification preferences, and change their password after providing the current password.
 - **REQ-004 (P2):** A customer can add a provider profile to their existing account and retain customer capabilities. The new provider profile starts pending verification.
-- **REQ-005 (P2):** Provider profiles can contain business identity, service/category, location, experience, pricing, description, a supported logo image, and social links.
+- **REQ-005 (P2):** Providers can edit their public business identity, service/category, location, service radius, experience, pricing and price unit, description, supported logo image, and social links. Saving profile changes persists the fields and returns the listing to pending verification.
 
 ### Provider discovery and customer planning
 
@@ -66,6 +66,7 @@ EventHub helps customers plan celebrations, discover event-service providers, re
 1. **Given** a new provider, **when** they create an account and complete provider details, **then** a provider profile is created with pending verification.
 2. **Given** an existing customer, **when** they add a provider profile, **then** their customer planning access remains available and their role includes provider access.
 3. **Given** an administrator, **when** they approve or reject a provider, **then** the verification state is saved and reflected in provider data.
+4. **Given** a provider editing their listing, **when** they update profile details and save, **then** the updated fields persist, the user receives save feedback, and the listing returns to pending verification.
 
 ### C. Discovery, shortlist, and selection (P1)
 

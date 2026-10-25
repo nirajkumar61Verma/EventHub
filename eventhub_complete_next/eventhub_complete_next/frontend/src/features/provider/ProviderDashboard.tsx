@@ -76,16 +76,28 @@ export default function ProviderDashboard() {
   }
 
   return (
-    <main>
-      <h1>Provider Dashboard</h1>
-      <div className="tabs">
+    <main className="provider-dashboard">
+      <header className="provider-dashboard-hero">
+        <div>
+          <p className="provider-dashboard-eyebrow">YOUR EVENTHUB BUSINESS</p>
+          <h1>Provider Dashboard</h1>
+          <p>Manage your enquiries, bookings, and the profile customers see.</p>
+        </div>
+        {tab === "profile" && form.verification_status && (
+          <span className={`provider-verification-status ${String(form.verification_status).toLowerCase()}`}>
+            {String(form.verification_status).replaceAll("_", " ")}
+          </span>
+        )}
+      </header>
+      <div className="tabs provider-dashboard-tabs" aria-label="Provider dashboard sections">
         {["enquiries", "bookings", "profile", "availability"].map((item) => (
           <button
             key={item}
             onClick={() => setTab(item)}
             className={tab === item ? "active" : ""}
+            aria-current={tab === item ? "page" : undefined}
           >
-            {item}
+            {item === "profile" ? "Edit profile" : item[0].toUpperCase() + item.slice(1)}
           </button>
         ))}
       </div>
@@ -167,122 +179,110 @@ export default function ProviderDashboard() {
             </div>
           )}
           {tab === "profile" && (
-            <form
-              className="card form provider-profile-form"
-              onSubmit={save}
-            >
-              <h2>Public provider profile</h2>
-              <label htmlFor="provider-business-name">Business name</label>
-              <input
-                id="provider-business-name"
-                required
-                maxLength={180}
-                value={form.business_name || ""}
-                onChange={(event) =>
-                  setForm({ ...form, business_name: event.target.value })
-                }
-              />
-              <label htmlFor="provider-business-title">
-                Business title or tagline
-              </label>
-              <input
-                id="provider-business-title"
-                maxLength={180}
-                value={form.business_title || ""}
-                onChange={(event) =>
-                  setForm({ ...form, business_title: event.target.value })
-                }
-                placeholder="e.g. Creating joyful celebrations, one detail at a time"
-              />
-              <label htmlFor="provider-category">Provider type</label>
-              <input
-                id="provider-category"
-                required
-                value={form.category || ""}
-                onChange={(event) =>
-                  setForm({ ...form, category: event.target.value })
-                }
-              />
-              <label htmlFor="provider-city">City</label>
-              <input
-                id="provider-city"
-                value={form.city || ""}
-                onChange={(event) =>
-                  setForm({ ...form, city: event.target.value })
-                }
-              />
-              <label htmlFor="provider-description">Business description</label>
-              <textarea
-                id="provider-description"
-                rows={4}
-                value={form.description || ""}
-                onChange={(event) =>
-                  setForm({ ...form, description: event.target.value })
-                }
-              />
-              <label htmlFor="provider-price">Starting price</label>
-              <input
-                id="provider-price"
-                type="number"
-                min={0}
-                value={form.starting_price || 0}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    starting_price: Number(event.target.value),
-                  })
-                }
-              />
-              <label>Business logo or profile icon</label>
-              <div className="provider-logo-control">
-                {form.logo_data && (
-                  <img
-                    className="provider-logo-preview"
-                    src={form.logo_data}
-                    alt="Business logo preview"
-                  />
+            <form className="provider-profile-form" onSubmit={save}>
+              <section className="provider-profile-editor-intro">
+                {form.logo_data ? (
+                  <img className="provider-logo-preview" src={form.logo_data} alt="Business logo preview" />
+                ) : (
+                  <span className="provider-logo-placeholder" aria-hidden="true">
+                    {(form.business_name || "E").trim().charAt(0).toUpperCase()}
+                  </span>
                 )}
-                <label className="button-label">
-                  Upload logo
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={(event) => {
-                      void uploadLogo(event.target.files?.[0]);
-                      event.target.value = "";
-                    }}
-                  />
-                </label>
-                {form.logo_data && (
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, logo_data: "" })}
-                  >
-                    Remove logo
-                  </button>
-                )}
-                <small>PNG, JPEG, or WebP; maximum 512 KB.</small>
-              </div>
-              <h3>Social media and website links</h3>
-              {socialFields.map(([key, label, placeholder]) => (
-                <div key={key} className="provider-social-field">
-                  <label htmlFor={`provider-${key}`}>{label}</label>
-                  <input
-                    id={`provider-${key}`}
-                    type="url"
-                    maxLength={500}
-                    value={form[key] || ""}
-                    onChange={(event) =>
-                      setForm({ ...form, [key]: event.target.value })
-                    }
-                    placeholder={placeholder}
-                  />
+                <div>
+                  <p className="provider-dashboard-eyebrow">YOUR PUBLIC LISTING</p>
+                  <h2>{form.business_name || "Tell customers about your service"}</h2>
+                  <p>Keep your service details current so customers can find the right event professional.</p>
                 </div>
-              ))}
-              <button className="primary" type="submit" disabled={saving}>
-                {saving ? "Saving profile..." : "Save profile"}
-              </button>
-              {message && <p role="status">{message}</p>}
+              </section>
+
+              <section className="provider-profile-section">
+                <div className="provider-profile-section-heading">
+                  <span>01</span>
+                  <div><h3>Business details</h3><p>Introduce your service and the people behind it.</p></div>
+                </div>
+                <div className="provider-profile-fields">
+                  <label htmlFor="provider-business-name">Business or professional name <span>*</span>
+                    <input id="provider-business-name" required maxLength={180} value={form.business_name || ""} onChange={(event) => setForm({ ...form, business_name: event.target.value })} />
+                  </label>
+                  <label htmlFor="provider-business-title">Profile title or tagline
+                    <input id="provider-business-title" maxLength={180} value={form.business_title || ""} onChange={(event) => setForm({ ...form, business_title: event.target.value })} placeholder="e.g. Creating joyful celebrations, one detail at a time" />
+                  </label>
+                  <label htmlFor="provider-category">Service you provide <span>*</span>
+                    <input id="provider-category" required maxLength={120} value={form.category || ""} onChange={(event) => setForm({ ...form, category: event.target.value })} placeholder="e.g. Mehndi artist, DJ, event planner" />
+                  </label>
+                  <label htmlFor="provider-description" className="provider-profile-field-wide">About your service
+                    <textarea id="provider-description" rows={4} maxLength={4000} value={form.description || ""} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Tell customers about your experience, style, and what makes your service special." />
+                  </label>
+                </div>
+              </section>
+
+              <section className="provider-profile-section">
+                <div className="provider-profile-section-heading">
+                  <span>02</span>
+                  <div><h3>Location and service area</h3><p>Help customers understand where you work.</p></div>
+                </div>
+                <div className="provider-profile-fields">
+                  <label htmlFor="provider-city">City <span>*</span>
+                    <input id="provider-city" required maxLength={100} value={form.city || ""} onChange={(event) => setForm({ ...form, city: event.target.value })} />
+                  </label>
+                  <label htmlFor="provider-state">State / Union Territory <span>*</span>
+                    <input id="provider-state" required maxLength={100} value={form.state || ""} onChange={(event) => setForm({ ...form, state: event.target.value })} />
+                  </label>
+                  <label htmlFor="provider-radius">Service radius (km)
+                    <input id="provider-radius" type="number" min={1} value={form.service_radius ?? 25} onChange={(event) => setForm({ ...form, service_radius: Number(event.target.value) })} />
+                  </label>
+                  <label htmlFor="provider-experience">Years of experience
+                    <input id="provider-experience" type="number" min={0} value={form.years_experience ?? 0} onChange={(event) => setForm({ ...form, years_experience: Number(event.target.value) })} />
+                  </label>
+                </div>
+              </section>
+
+              <section className="provider-profile-section">
+                <div className="provider-profile-section-heading">
+                  <span>03</span>
+                  <div><h3>Pricing and brand</h3><p>Share an indicative starting price and add a recognizable logo.</p></div>
+                </div>
+                <div className="provider-profile-fields">
+                  <label htmlFor="provider-price">Starting price (₹)
+                    <input id="provider-price" type="number" min={0} step="any" value={form.starting_price ?? 0} onChange={(event) => setForm({ ...form, starting_price: Number(event.target.value) })} />
+                  </label>
+                  <label htmlFor="provider-price-unit">Price applies per
+                    <select id="provider-price-unit" value={form.price_unit || "event"} onChange={(event) => setForm({ ...form, price_unit: event.target.value })}>
+                      {["event", "hour", "day", "person", "package"].map((unit) => <option key={unit} value={unit}>{unit[0].toUpperCase() + unit.slice(1)}</option>)}
+                    </select>
+                  </label>
+                  <div className="provider-logo-editor provider-profile-field-wide">
+                    <div><strong>Business logo or profile image</strong><small>PNG, JPEG, or WebP, up to 512 KB.</small></div>
+                    <div className="provider-logo-control">
+                      <label className="button-label" htmlFor="provider-logo-upload">Upload logo</label>
+                      <input id="provider-logo-upload" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { void uploadLogo(event.target.files?.[0]); event.target.value = ""; }} />
+                      {form.logo_data && <button type="button" onClick={() => setForm({ ...form, logo_data: "" })}>Remove logo</button>}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="provider-profile-section">
+                <div className="provider-profile-section-heading">
+                  <span>04</span>
+                  <div><h3>Social links</h3><p>Optional links where customers can learn more about your work.</p></div>
+                </div>
+                <div className="provider-profile-fields">
+                  {socialFields.map(([key, label, placeholder]) => (
+                    <label key={key} htmlFor={`provider-${key}`}>{label}
+                      <input id={`provider-${key}`} type="url" maxLength={500} value={form[key] || ""} onChange={(event) => setForm({ ...form, [key]: event.target.value })} placeholder={placeholder} />
+                    </label>
+                  ))}
+                </div>
+              </section>
+              {form.verification_status && (
+                <p className="provider-profile-review-note">Saving profile changes sends the listing back for provider review.</p>
+              )}
+              {message && <p role="status" className="provider-profile-save-message">{message}</p>}
+              <div className="provider-profile-save-row">
+                <span>Fields marked <strong>*</strong> are required.</span>
+                <button className="primary" type="submit" disabled={saving}>{saving ? "Saving your profile..." : "Save profile changes"}</button>
+              </div>
             </form>
           )}
           {tab === "availability" && <Availability />}

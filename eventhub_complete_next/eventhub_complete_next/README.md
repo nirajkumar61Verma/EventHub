@@ -27,10 +27,37 @@ Technical Requirement Brief: Admin verification and marketplace management.
 
 ## Run
 
+To run the full stack with Docker:
+
 ```powershell
 cd C:\path\to\eventhub_complete_next
 docker compose up --build
 ```
+
+To run the frontend directly during development:
+
+```powershell
+cd C:\path\to\eventhub_complete_next\frontend
+npm install
+npm start
+```
+
+`npm start` runs the Vite development server on all network interfaces (equivalent to `npm run dev`). Start the backend separately, listening on `0.0.0.0:8000`.
+
+### Access from another laptop on your local network
+
+1. Connect both laptops to the same trusted Wi-Fi or LAN.
+2. On the host laptop, start the full stack with `docker compose up --build` from the project directory. The frontend and API containers listen on all interfaces.
+3. Find the host laptop's private IPv4 address in PowerShell:
+
+   ```powershell
+   Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.InterfaceOperationalStatus -eq "Up" } | Select-Object InterfaceAlias, IPAddress
+   ```
+
+4. If Windows Firewall prompts, allow Docker/Node/Python access on **Private networks only**. If needed, add inbound TCP rules for ports `5173` (frontend) and `8000` (API), restricted to the Private profile. Do not expose these ports through your router or to public networks.
+5. On the other laptop, open `http://<host-private-ip>:5173` (for example, `http://192.168.1.25:5173`). The frontend automatically sends API requests to that same host on port `8000`.
+
+The frontend and API use unencrypted HTTP and the compose file contains development credentials. Use this only on a trusted local network; change the default credentials and secrets before using real data.
 
 Open:
 - Frontend: http://localhost:5173
@@ -60,7 +87,7 @@ Change these values in `docker-compose.yml` for anything beyond local developmen
 13. Customers can shortlist planners from the marketplace, add planning notes in My planner dashboard, and mark one active planner as their final choice.
 14. Signed-in users can open Settings from the left-side hamburger navigation. Settings shows section links and account details in a left sidebar, with the selected profile, security, or notification controls beside it.
 15. Customers can use **Plan an event** to submit the event type, date, location, guest count, budget, service needs, and notes to one or more selected providers. Requests appear in the provider enquiry dashboard, and customers can track provider replies from the event form.
-16. Service providers can add a business title/tagline, upload a PNG/JPEG/WebP logo up to 512 KB, and add Instagram, Facebook, YouTube, LinkedIn, and website links from sign-up or Provider Dashboard → Profile. These display on the public provider profile.
+16. Service providers can edit their public listing from the themed, responsive Provider Dashboard → Edit profile screen, including business identity, service, location, service radius, experience, description, starting price and unit, a PNG/JPEG/WebP logo up to 512 KB, and Instagram, Facebook, YouTube, LinkedIn, and website links. Saving edits returns the listing to pending verification.
 17. The existing local database now includes 31 additional synthetic provider profiles covering 24 states and Union Territories. They are clearly marked as demo listings, have pending verification, and intentionally have no fabricated contact or social links. To safely seed them again after resetting the database, run `docker compose exec backend python -m app.seed_demo_providers` from this project directory; existing seeded entries are skipped.
 18. Customers can use the hamburger sidebar's **Become a service provider** action to create a provider profile on their existing account. Customer planning tools remain enabled, and their new service profile is pending admin verification. The service field accepts any text, including individual services such as mehndi artist, dancer, or event anchor.
 19. The header's top-right account icon opens profile/settings and Help/About navigation. Help contains marketplace FAQs; About describes the marketplace and calls out synthetic demo listings.

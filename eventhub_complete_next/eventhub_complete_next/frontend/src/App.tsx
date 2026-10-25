@@ -117,6 +117,7 @@ export default function App() {
       )}
       {page === "about" && (
         <AboutPage
+          user={user}
           onBrowse={() => setPage("providers")}
           onHelp={() => setPage("help")}
         />

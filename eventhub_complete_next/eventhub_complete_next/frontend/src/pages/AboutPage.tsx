@@ -16,6 +16,7 @@ import TravelExploreOutlinedIcon from "@mui/icons-material/TravelExploreOutlined
 import CheckCircleOutlineOutlinedIcon from "@mui/icons-material/CheckCircleOutlineOutlined";
 
 type AboutPageProps = {
+  user: { full_name?: string; name?: string; role?: string } | null;
   onBrowse: () => void;
   onHelp: () => void;
 };
@@ -41,7 +42,19 @@ const features = [
   },
 ];
 
-export default function AboutPage({ onBrowse, onHelp }: AboutPageProps) {
+export default function AboutPage({ user, onBrowse, onHelp }: AboutPageProps) {
+  const accountType =
+    user?.role === "CUSTOMER_PROVIDER"
+      ? "Customer and event service provider"
+      : user?.role === "PROVIDER"
+        ? "Event service provider"
+        : user?.role === "ADMIN"
+          ? "EventHub administrator"
+          : user?.role === "CUSTOMER"
+            ? "Customer"
+            : "Guest";
+  const displayName = user?.full_name || user?.name;
+
   return (
     <Box className="information-page">
       <Paper className="information-hero" elevation={0}>
@@ -68,6 +81,30 @@ export default function AboutPage({ onBrowse, onHelp }: AboutPageProps) {
             </Button>
           </Stack>
         </Stack>
+      </Paper>
+      <Paper className="about-account-card" elevation={0}>
+        <Box className="information-feature-icon" aria-hidden="true">
+          <GroupsOutlinedIcon />
+        </Box>
+        <Box>
+          <Typography variant="overline" sx={{ color: "#987044", letterSpacing: 1.5 }}>
+            YOUR EVENTHUB ACCOUNT
+          </Typography>
+          <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+            {displayName ? `${displayName}, you are signed in as a ${accountType.toLowerCase()}.` : `You are viewing EventHub as a ${accountType.toLowerCase()}.`}
+          </Typography>
+          <Typography color="text.secondary">
+            {user?.role === "CUSTOMER_PROVIDER"
+              ? "Your account includes both customer event-planning tools and an event service provider profile."
+              : user?.role === "PROVIDER"
+                ? "Your account is set up to offer event services and manage your provider profile."
+                : user?.role === "CUSTOMER"
+                  ? "Your account is ready to discover event professionals and plan celebrations."
+                  : user?.role === "ADMIN"
+                    ? "Your account has administrator access to EventHub management tools."
+                    : "Sign in to access the features available for your account."}
+          </Typography>
+        </Box>
       </Paper>
       <Box className="information-feature-grid">
         {features.map((feature) => (
