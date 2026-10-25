@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
-import { api } from "./api/client";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, Backdrop, Box, CircularProgress, Snackbar } from "@mui/material";
+import { api, subscribeApiFeedback } from "./api/client";
 import AppNavigation from "./components/AppNavigation";
 import AdminDashboard from "./features/admin/AdminDashboard";
 import PlannerShortlist from "./features/customer/PlannerShortlist";
@@ -24,6 +25,33 @@ export default function App() {
   const [page, setPage] = useState("home");
   const [providerId, setProviderId] = useState(0);
   const [requestProviderId, setRequestProviderId] = useState(0);
+  const [pendingRequests, setPendingRequests] = useState(0);
+  const [showLoading, setShowLoading] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    severity: "success" | "error";
+  } | null>(null);
+
+  useEffect(
+    () =>
+      subscribeApiFeedback((event) => {
+        if (event.type === "pending") {
+          setPendingRequests(event.count);
+        } else {
+          setToast({ message: event.message, severity: event.severity });
+        }
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    if (pendingRequests === 0) {
+      setShowLoading(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => setShowLoading(true), 250);
+    return () => window.clearTimeout(timeout);
+  }, [pendingRequests]);
 
   function startEventRequest(initialProviderId = 0) {
     setRequestProviderId(initialProviderId);
@@ -166,6 +194,41 @@ export default function App() {
       )}
       {page === "admin" && user?.role === "ADMIN" && <AdminDashboard />}
       <AppFooter onPage={setPage} />
+      <Backdrop
+        className="app-loading-backdrop"
+        open={showLoading}
+        aria-label="Loading"
+      >
+        <Box className="app-loading-indicator">
+          <CircularProgress
+            aria-label="Loading"
+            size={42}
+            thickness={4}
+            sx={{ color: "#9b315a" }}
+          />
+          <span>One moment, please...</span>
+        </Box>
+      </Backdrop>
+      <Snackbar
+        open={Boolean(toast)}
+        autoHideDuration={4500}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        sx={{ zIndex: 1600 }}
+        onClose={(_, reason) => {
+          if (reason !== "clickaway") setToast(null);
+        }}
+      >
+        {toast ? (
+          <Alert
+            onClose={() => setToast(null)}
+            severity={toast.severity}
+            variant="filled"
+            className="app-toast"
+          >
+            {toast.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </>
   );
 }

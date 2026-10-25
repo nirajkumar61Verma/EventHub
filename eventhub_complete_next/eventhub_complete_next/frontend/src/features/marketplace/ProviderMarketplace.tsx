@@ -107,42 +107,35 @@ export default function ProviderMarketplace({
   }
 
   return (
-    <main>
-      <div className="hero">
-        <p className="eyebrow">EVENTHUB MARKETPLACE</p>
-        <h1>Find your event professionals.</h1>
-        <p>
-          Search by service or location, or combine filters to find the right
-          provider.
-        </p>
-        <div
-          className="provider-filters"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))",
-            gap: 10,
-            alignItems: "center",
-          }}
-        >
+    <main className="provider-marketplace">
+      <section className="provider-marketplace-hero">
+        <div className="marketplace-hero-copy">
+          <p className="eyebrow">THE CELEBRATION STARTS HERE</p>
+          <h1>Meet your event’s dream team.</h1>
+          <p>
+            From wedding photographers to birthday DJs, discover people who can
+            help bring your celebration to life.
+          </p>
+        </div>
+        <div className="provider-marketplace-decoration" aria-hidden="true">
+          <span className="marketplace-decoration-sparkle">✦</span>
+          <span className="marketplace-decoration-flower">✿</span>
+          <span className="marketplace-decoration-ring" />
+          <span className="marketplace-decoration-tag">MADE FOR YOUR MOMENT</span>
+        </div>
+        <div className="provider-filters">
           <input
             aria-label="Search providers"
             placeholder="Search service, city, or business"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            style={{
-              width: "100%",
-              padding: "16px",
-              border: "1px solid #d7d0c5",
-              borderRadius: 12,
-              background: "#fff",
-              marginTop: 18,
-            }}
+            className="provider-search-input"
           />
           <select
             aria-label="Filter by service"
             value={service}
             onChange={(event) => setService(event.target.value)}
-            style={filterStyle}
+            className="provider-filter-select"
           >
             <option value="">All services</option>
             {services.map((type) => (
@@ -158,7 +151,7 @@ export default function ProviderMarketplace({
               setState(event.target.value);
               setCity("");
             }}
-            style={filterStyle}
+            className="provider-filter-select"
           >
             <option value="">All states / UTs</option>
             {indianStates.map((item) => (
@@ -171,7 +164,7 @@ export default function ProviderMarketplace({
             aria-label="Filter by city"
             value={city}
             onChange={(event) => setCity(event.target.value)}
-            style={filterStyle}
+            className="provider-filter-select"
             disabled={availableCities.length === 0}
           >
             <option value="">All cities</option>
@@ -183,68 +176,100 @@ export default function ProviderMarketplace({
           </select>
         </div>
         {(query || service || state || city) && (
-          <button type="button" onClick={clearFilters} style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            className="provider-clear-filters"
+            onClick={clearFilters}
+          >
             Clear filters
           </button>
         )}
         {!loading && !error && (
-          <p className="provider-count">
-            Showing {filtered.length} of {rows.length} service providers
-          </p>
+          <div className="provider-count-row">
+            <p className="provider-count">
+              <strong>{filtered.length}</strong> of {rows.length} event
+              professionals
+            </p>
+            <span className="provider-count-note">Find the right people for your day</span>
+          </div>
         )}
-      </div>
+      </section>
       {error && (
-        <p role="alert" className="error">
+        <p role="alert" className="error provider-marketplace-message">
           {error}
         </p>
       )}
       {shortlistError && (
-        <p role="alert" className="error">
+        <p role="alert" className="error provider-marketplace-message">
           {shortlistError}
         </p>
       )}
       {loading ? (
-        <p>Loading service providers...</p>
+        <p className="provider-marketplace-message">Finding your event professionals...</p>
       ) : !error && filtered.length === 0 ? (
-        <p>No service providers match these filters.</p>
+        <section className="provider-empty-state">
+          <span aria-hidden="true">✿</span>
+          <h2>No matches just yet</h2>
+          <p>Try another service or location to find more event professionals.</p>
+          <button type="button" className="provider-clear-filters" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </section>
       ) : (
-        <div className="grid">
+        <div className="grid provider-card-grid">
           {filtered.map((provider) => {
             const type =
               provider.provider_type || provider.category || "Event services";
+            const isVerified = Boolean(provider.verified);
             return (
               <article
-                className="card"
+                className="card provider-card"
                 key={provider.id}
                 onClick={() => onOpen(provider.id)}
               >
-                <div className="avatar">{provider.business_name?.[0] || "E"}</div>
-                <h2>
-                  {provider.business_name}{" "}
-                  <span className="badge">
-                    {provider.verified
+                <div className="provider-card-topline">
+                  <div className="avatar provider-card-avatar">
+                    {provider.business_name?.[0] || "E"}
+                  </div>
+                  <span className={`provider-verification ${isVerified ? "is-verified" : "is-pending"}`}>
+                    <span aria-hidden="true">{isVerified ? "✓" : "✦"}</span>
+                    {isVerified
                       ? "Verified"
-                      : provider.verification_status || "Pending"}
+                      : provider.verification_status || "Pending review"}
                   </span>
-                </h2>
-                {provider.business_title && <p>{provider.business_title}</p>}
-                <p>
-                  {type} · {provider.city}
-                </p>
-                <p>
-                  {provider.years_experience || 0} years experience · Service
-                  radius {provider.service_radius || 25} km
-                </p>
-                <p>
-                  ★ {provider.rating || "New"} · {provider.review_count || 0} reviews
-                </p>
-                <strong>
-                  From ₹{provider.starting_price || 0} /{" "}
-                  {provider.price_unit || "event"}
-                </strong>
+                </div>
+                <div className="provider-card-heading">
+                  <h2>{provider.business_name}</h2>
+                  {provider.business_title && (
+                    <p className="provider-card-title">{provider.business_title}</p>
+                  )}
+                </div>
+                <div className="provider-card-location">
+                  <span>{type}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{provider.city}</span>
+                </div>
+                <div className="provider-card-details">
+                  <span>{provider.years_experience || 0} years experience</span>
+                  <span>Travel radius {provider.service_radius || 25} km</span>
+                </div>
+                <div className="provider-card-rating">
+                  <span aria-label={`${provider.rating || "New"} star rating`}>★</span>
+                  <strong>{provider.rating || "New"}</strong>
+                  <span>· {provider.review_count || 0} reviews</span>
+                </div>
+                <div className="provider-card-footer">
+                  <strong>
+                    <span>Starting from</span>
+                    ₹{provider.starting_price || 0}
+                    <small> / {provider.price_unit || "event"}</small>
+                  </strong>
+                  <span className="provider-view-profile">View profile <span aria-hidden="true">→</span></span>
+                </div>
                 {["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
-                  <div>
+                  <div className="provider-card-actions">
                     <button
+                      className="provider-shortlist-button"
                       type="button"
                       aria-label={
                         shortlisted.includes(provider.id)
@@ -268,12 +293,3 @@ export default function ProviderMarketplace({
     </main>
   );
 }
-
-const filterStyle = {
-  width: "100%",
-  padding: "16px",
-  border: "1px solid #d7d0c5",
-  borderRadius: 12,
-  background: "#fff",
-  marginTop: 18,
-};

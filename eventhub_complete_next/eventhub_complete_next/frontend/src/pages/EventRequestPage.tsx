@@ -177,25 +177,35 @@ export default function EventRequestPage({
   }
 
   return (
-    <Box component="main" sx={{ maxWidth: 1100, mx: "auto", px: { xs: 2, sm: 3 }, py: 4 }}>
-      <Stack spacing={1} sx={{ mb: 3 }}>
-        <Typography variant="overline" sx={{ color: "#987044", letterSpacing: 2 }}>EVENTHUB PLANNING</Typography>
-        <Typography variant="h3" sx={{ fontFamily: "Georgia, serif", fontWeight: 700 }}>Tell providers about your event</Typography>
-        <Typography color="text.secondary">
-          Share your date, guest count, location, and needs. Your event brief will be sent to each provider you select.
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Requests appear in each provider&apos;s Enquiries dashboard; email notifications are not enabled yet.
-        </Typography>
-      </Stack>
+    <Box component="main" className="event-planning-page">
+      <Box className="event-planning-hero">
+        <Stack spacing={1} className="event-planning-hero-copy">
+          <Typography variant="overline" className="event-planning-eyebrow">LET'S CELEBRATE SOMETHING SPECIAL</Typography>
+          <Typography variant="h3">Tell providers about your event</Typography>
+          <Typography>
+            Share your date, guest count, location, and needs. Your event brief will be sent to each provider you select.
+          </Typography>
+          <Typography variant="body2">
+            Requests appear in each provider&apos;s Enquiries dashboard; email notifications are not enabled yet.
+          </Typography>
+        </Stack>
+        <div className="event-planning-decoration" aria-hidden="true">
+          <span className="event-planning-ring" />
+          <span className="event-planning-flower">✿</span>
+          <span className="event-planning-sparkle">✦</span>
+          <span className="event-planning-decoration-label">YOUR DAY, YOUR WAY</span>
+        </div>
+      </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+      {error && <Alert severity="error" className="event-planning-alert">{error}</Alert>}
+      {success && <Alert severity="success" className="event-planning-alert">{success}</Alert>}
 
-      <Paper component="form" onSubmit={submit} elevation={0} sx={{ p: { xs: 2, sm: 3 }, border: "1px solid #e7e1d7", borderRadius: 3 }}>
+      <Paper component="form" onSubmit={submit} elevation={0} className="event-planning-form">
         <Stack spacing={2.5}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>Event details</Typography>
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
+          <Box className="event-form-section event-details-section">
+            <Typography className="event-form-step">01 <span>YOUR CELEBRATION</span></Typography>
+            <Typography variant="h6" className="event-form-section-title">Event details</Typography>
+            <Box className="event-details-grid">
             <TextField select label="Event type" required value={eventType} onChange={(event) => setEventType(event.target.value)}>
               {eventTypes.map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
             </TextField>
@@ -210,13 +220,15 @@ export default function EventRequestPage({
             <TextField label="Number of guests" type="number" required value={guests} onChange={(event) => setGuests(event.target.value)} slotProps={{ htmlInput: { min: 1, max: 100000 } }} />
             <TextField label="Estimated budget (₹)" type="number" helperText="Optional; leave blank if undecided." value={budget} onChange={(event) => setBudget(event.target.value)} slotProps={{ htmlInput: { min: 0, step: 500 } }} />
             <TextField label="Venue or area (optional)" value={venue} onChange={(event) => setVenue(event.target.value)} slotProps={{ htmlInput: { maxLength: 300 } }} />
+            </Box>
           </Box>
 
-          <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Services you need</Typography>
+          <Box className="event-form-section">
+            <Typography className="event-form-step">02 <span>THE DETAILS</span></Typography>
+            <Typography variant="subtitle1" className="event-form-section-title">Services you need</Typography>
             <Typography variant="body2" color="text.secondary">Optional. Choose one or more service types to narrow provider selection.</Typography>
             {loading ? <Typography sx={{ mt: 1 }}>Loading services...</Typography> : (
-              <FormGroup row>
+              <FormGroup row className="event-service-options">
                 {serviceOptions.map((service) => (
                   <FormControlLabel key={service} control={<Checkbox checked={services.includes(service)} onChange={(event) => updateServices(service, event.target.checked)} />} label={service} />
                 ))}
@@ -224,6 +236,8 @@ export default function EventRequestPage({
             )}
           </Box>
 
+          <Box className="event-form-section event-notes-section">
+          <Typography className="event-form-step">03 <span>MAKE IT YOURS</span></Typography>
           <TextField
             label="Event notes and requirements (optional)"
             multiline
@@ -233,20 +247,22 @@ export default function EventRequestPage({
             helperText="Mention themes, food preferences, accessibility needs, timing, or other details providers should know."
             slotProps={{ htmlInput: { maxLength: 4000 } }}
           />
+          </Box>
 
-          <Box>
-            <Stack spacing={1} sx={{ mb: 1, flexDirection: { xs: "column", sm: "row" }, justifyContent: "space-between", alignItems: { xs: "stretch", sm: "center" } }}>
+          <Box className="event-form-section event-provider-section">
+            <Stack spacing={1} className="event-provider-heading">
               <Box>
-                <Typography variant="h6" sx={{ fontWeight: 700 }}>Choose providers</Typography>
+                <Typography className="event-form-step">04 <span>YOUR EVENT TEAM</span></Typography>
+                <Typography variant="h6" className="event-form-section-title">Choose providers</Typography>
                 <Typography variant="body2" color="text.secondary">Select one or more providers. Choose a state and city above to narrow the list.</Typography>
               </Box>
-              <Chip label={`${selectedProviders.length} selected`} color={selectedProviders.length ? "primary" : "default"} />
             </Stack>
+            <Chip className="event-selected-count" label={`${selectedProviders.length} selected`} color={selectedProviders.length ? "primary" : "default"} />
             <TextField fullWidth label="Search providers" value={providerSearch} onChange={(event) => setProviderSearch(event.target.value)} sx={{ mb: 1.5 }} />
             {loading ? <Typography>Loading providers...</Typography> : matchingProviders.length === 0 ? (
               <Alert severity="info">No providers match these filters. Try another city or service type.</Alert>
             ) : (
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 1.25, maxHeight: 390, overflowY: "auto", p: 0.25 }}>
+              <Box className="event-provider-grid">
                 {matchingProviders.map((provider) => (
                   <Paper
                     key={provider.id}
@@ -254,11 +270,12 @@ export default function EventRequestPage({
                     variant="outlined"
                     sx={{
                       p: 1.5,
-                      borderRadius: 2,
+                      borderRadius: 2.5,
                       cursor: "pointer",
-                      borderColor: selectedProviders.includes(provider.id) ? "#29251f" : undefined,
-                      backgroundColor: selectedProviders.includes(provider.id) ? "#f7f4ee" : "#fff",
-                      "&:hover": { borderColor: "#987044", backgroundColor: "#fbf9f5" },
+                      borderColor: selectedProviders.includes(provider.id) ? "#9b315a" : "#f0dfd5",
+                      backgroundColor: selectedProviders.includes(provider.id) ? "#fff0f3" : "#fffdf9",
+                      transition: "border-color .2s ease, background-color .2s ease, transform .2s ease",
+                      "&:hover": { borderColor: "#c78935", backgroundColor: "#fff8ef", transform: "translateY(-2px)" },
                     }}
                   >
                     <Box sx={{ display: "flex", alignItems: "flex-start" }}>
@@ -268,10 +285,10 @@ export default function EventRequestPage({
                         sx={{ mt: -0.5, ml: -0.5 }}
                       />
                       <Box sx={{ pt: 0.75 }}>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{provider.business_name}</Typography>
+                        <Typography variant="subtitle2" className="event-provider-name">{provider.business_name}</Typography>
                         <Typography variant="body2" color="text.secondary">{provider.provider_type || provider.category} · {provider.city}, {provider.state}</Typography>
-                        <Typography variant="body2">From ₹{provider.starting_price} / {provider.price_unit}</Typography>
-                        {selectedProviders.includes(provider.id) && <Chip size="small" label="Selected" sx={{ mt: 0.75 }} />}
+                        <Typography variant="body2" className="event-provider-price">From ₹{provider.starting_price} / {provider.price_unit}</Typography>
+                        {selectedProviders.includes(provider.id) && <Chip size="small" label="Selected" color="primary" sx={{ mt: 0.75 }} />}
                         {selectedProviders.includes(provider.id) && state && (provider.state !== state || (city && provider.city.toLowerCase() !== city.toLowerCase())) && (
                           <Typography
                             variant="caption"
@@ -289,8 +306,8 @@ export default function EventRequestPage({
             )}
           </Box>
 
-          <Stack spacing={1} sx={{ flexDirection: { xs: "column", sm: "row" } }}>
-            <Button type="submit" variant="contained" disabled={submitting || loading} sx={{ borderRadius: 2, bgcolor: "#29251f", textTransform: "none" }}>
+          <Stack spacing={1} className="event-planning-actions">
+            <Button type="submit" variant="contained" disabled={submitting || loading} className="event-submit-button">
               {submitting ? "Sending event request..." : `Send to ${selectedProviders.length || "selected"} provider${selectedProviders.length === 1 ? "" : "s"}`}
             </Button>
             <Button type="button" onClick={onBrowse} sx={{ borderRadius: 2, textTransform: "none" }}>Browse providers</Button>
@@ -298,13 +315,16 @@ export default function EventRequestPage({
         </Stack>
       </Paper>
 
-      <Box sx={{ mt: 5 }}>
-        <Typography variant="h5" sx={{ fontFamily: "Georgia, serif", fontWeight: 700, mb: 2 }}>Your sent event requests</Typography>
-        {events.length === 0 ? <Typography color="text.secondary">Your submitted event requests will appear here.</Typography> : (
+      <Box className="event-sent-requests">
+        <div className="event-sent-requests-heading">
+          <Typography variant="h5">Your sent event requests</Typography>
+          <span>{events.length} {events.length === 1 ? "request" : "requests"}</span>
+        </div>
+        {events.length === 0 ? <div className="event-requests-empty"><span aria-hidden="true">✦</span><Typography color="text.secondary">Your submitted event requests will appear here.</Typography></div> : (
           <Stack spacing={1.5}>
             {events.map((item) => (
-              <Paper key={item.id} elevation={0} sx={{ p: 2.5, border: "1px solid #e7e1d7", borderRadius: 3 }}>
-                <Typography variant="h6" sx={{ fontWeight: 700 }}>{item.event_type} · {item.city}{item.state ? `, ${item.state}` : ""}</Typography>
+              <Paper key={item.id} elevation={0} className="event-sent-request-card">
+                <Typography variant="h6">{item.event_type} · {item.city}{item.state ? `, ${item.state}` : ""}</Typography>
                 <Typography color="text.secondary">{item.event_date} · {item.guests} guests · Budget {item.budget ? `₹${item.budget}` : "Not provided"}</Typography>
                 {item.services?.length > 0 && <Typography sx={{ mt: 1 }}>Services: {item.services.join(", ")}</Typography>}
                 <Stack spacing={0.5} sx={{ mt: 1 }}>

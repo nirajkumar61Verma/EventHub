@@ -23,7 +23,7 @@ export default function ProviderProfile({
 }: ProviderProfileProps) {
   const [provider, setProvider] = useState<any>();
   const [reviews, setReviews] = useState<any[]>([]);
-  const [rating, setRating] = useState("5");
+  const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -84,10 +84,18 @@ export default function ProviderProfile({
     { label: "LinkedIn", url: provider.linkedin_url, icon: <LinkedIn /> },
     { label: "Website", url: provider.website_url, icon: <Language /> },
   ].filter((item) => item.url);
+  const ratingBreakdown = [5, 4, 3, 2, 1].map((value) => ({
+    value,
+    count: reviews.filter(
+      (review) => Math.round(Number(review.rating)) === value,
+    ).length,
+  }));
+  const reviewTotal = reviews.length;
+  const averageRating = Number(provider.rating || 0);
 
   return (
-    <main>
-      <div className="profile card">
+    <main className="provider-profile-page">
+      <div className="profile card provider-profile-hero">
         {provider.logo_data ? (
           <img
             className="provider-logo-public"
@@ -113,8 +121,8 @@ export default function ProviderProfile({
           <h3>
             ₹{provider.starting_price} / {provider.price_unit}
           </h3>
-          <p aria-label={`${provider.rating || 0} out of 5 stars`}>
-            ★ {Number(provider.rating || 0).toFixed(1)} ·{" "}
+          <p className="provider-profile-rating" aria-label={`${averageRating} out of 5 stars`}>
+            <span aria-hidden="true">★</span> {averageRating.toFixed(1)} ·{" "}
             {provider.review_count || 0} reviews
           </p>
           {socialLinks.length > 0 && (
@@ -140,8 +148,11 @@ export default function ProviderProfile({
           )}
         </div>
       </div>
-      <div className="card">
-        <h2>Send an event request</h2>
+      <div className="card provider-request-card">
+        <div>
+          <p className="provider-profile-eyebrow">LET'S MAKE IT MEMORABLE</p>
+          <h2>Send an event request</h2>
+        </div>
         <p>
           Share your event date, guest count, location, and requirements to ask
           this provider for a quote.
@@ -163,42 +174,96 @@ export default function ProviderProfile({
         )}
       </div>
       <section className="provider-reviews">
-        <h2>Customer ratings and comments</h2>
-        {reviews.length === 0 ? (
-          <p>No reviews yet. Be the first to rate this provider.</p>
+        <div className="provider-reviews-heading">
+          <div>
+            <p className="provider-profile-eyebrow">KIND WORDS</p>
+            <h2>Customer ratings and comments</h2>
+          </div>
+          <span>{provider.review_count || 0} reviews</span>
+        </div>
+        <div className="card provider-rating-summary">
+          <div className="provider-rating-overall">
+            <strong>{averageRating.toFixed(1)}</strong>
+            <span className="provider-rating-stars" aria-label={`${averageRating} out of 5 stars`}>
+              {"★".repeat(Math.round(averageRating))}
+              {"☆".repeat(5 - Math.round(averageRating))}
+            </span>
+            <small>Based on {provider.review_count || 0} reviews</small>
+          </div>
+          <div className="provider-rating-breakdown" aria-label="Rating breakdown">
+            {ratingBreakdown.map(({ value, count }) => {
+              const percentage = reviewTotal
+                ? Math.round((count / reviewTotal) * 100)
+                : 0;
+              return (
+                <div className="provider-rating-row" key={value}>
+                  <span>{value} <span aria-hidden="true">★</span></span>
+                  <div
+                    className="provider-rating-progress"
+                    role="progressbar"
+                    aria-label={`${value} star reviews`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={percentage}
+                  >
+                    <span style={{ width: `${percentage}%` }} />
+                  </div>
+                  <small>{count}</small>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {reviewTotal === 0 ? (
+          <div className="provider-empty-reviews">
+            <span aria-hidden="true">✦</span>
+            <p>No reviews yet. Be the first to share your experience.</p>
+          </div>
         ) : (
-          <div className="list">
+          <div className="list provider-review-list">
             {reviews.map((review) => (
-              <article className="card" key={review.id}>
-                <strong aria-label={`${review.rating} out of 5 stars`}>
-                  {"★".repeat(Math.round(review.rating))}
-                  {"☆".repeat(5 - Math.round(review.rating))} {review.rating}/5
-                </strong>
+              <article className="card provider-review-card" key={review.id}>
+                <div className="provider-review-card-heading">
+                  <div className="provider-review-avatar" aria-hidden="true">
+                    {review.reviewer_name?.[0]?.toUpperCase() || "G"}
+                  </div>
+                  <div>
+                    <strong>{review.reviewer_name || "Guest"}</strong>
+                    <small>{new Date(review.created_at).toLocaleDateString()}</small>
+                  </div>
+                  <span
+                    className="provider-review-score"
+                    aria-label={`${review.rating} out of 5 stars`}
+                  >
+                    ★ {Number(review.rating).toFixed(1)}
+                  </span>
+                </div>
                 <p>{review.comment || "No comment provided."}</p>
-                <small>
-                  {review.reviewer_name} ·{" "}
-                  {new Date(review.created_at).toLocaleDateString()}
-                </small>
               </article>
             ))}
           </div>
         )}
         {["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) ? (
-          <form className="card form" onSubmit={submitReview}>
-            <h3>Leave a rating</h3>
-            <label htmlFor="provider-rating">Your rating</label>
-            <select
-              id="provider-rating"
-              aria-label="Your rating"
-              value={rating}
-              onChange={(event) => setRating(event.target.value)}
-            >
-              {[5, 4, 3, 2, 1].map((value) => (
-                <option key={value} value={value}>
-                  {value} star{value === 1 ? "" : "s"}
-                </option>
+          <form className="card form provider-review-form" onSubmit={submitReview}>
+            <div>
+              <p className="provider-profile-eyebrow">YOUR EXPERIENCE MATTERS</p>
+              <h3>Leave a rating</h3>
+            </div>
+            <span id="provider-rating-label">Choose your star rating</span>
+            <div className="provider-star-picker" role="group" aria-labelledby="provider-rating-label">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  key={value}
+                  className={value <= rating ? "selected" : ""}
+                  type="button"
+                  aria-label={`${value} star${value === 1 ? "" : "s"}`}
+                  aria-pressed={rating === value}
+                  onClick={() => setRating(value)}
+                >
+                  {value <= rating ? "★" : "☆"}
+                </button>
               ))}
-            </select>
+            </div>
             <label htmlFor="provider-comment">Comment (optional)</label>
             <textarea
               id="provider-comment"
@@ -209,7 +274,7 @@ export default function ProviderProfile({
               onChange={(event) => setComment(event.target.value)}
               placeholder="Share your experience with this provider"
             />
-            <button className="primary" type="submit" disabled={saving}>
+            <button className="primary provider-review-submit" type="submit" disabled={saving}>
               {saving ? "Saving..." : "Submit rating"}
             </button>
             {message && <p role="status">{message}</p>}

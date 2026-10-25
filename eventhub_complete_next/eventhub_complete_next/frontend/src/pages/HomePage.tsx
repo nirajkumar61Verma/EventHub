@@ -59,36 +59,53 @@ export default function HomePage({
   return (
     <Box className="home-page">
       <Box className="hero">
-        <p className="eyebrow">EVENT SERVICES MARKETPLACE</p>
-        <Typography
-          variant="h1"
-          sx={{
-            fontFamily: "Georgia, serif",
-            fontSize: "clamp(42px, 7vw, 78px)",
-            fontWeight: 700,
-            lineHeight: 0.98,
-            maxWidth: 900,
-            my: 1.5,
-          }}
-        >
-          Plan the event. Find the people. Bring it to life.
-        </Typography>
-        <Typography color="text.secondary" sx={{ maxWidth: 680, fontSize: 18 }}>
-          Discover event professionals, share what you need, and keep your
-          planning organized with EventHub.
-        </Typography>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 3 }}>
-          <Button variant="contained" onClick={onBrowse}>
-            Explore providers
-          </Button>
-          <Button variant="outlined" onClick={onSignup}>
-            Create an account
-          </Button>
-        </Stack>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          Start browsing without an account. Sign in to shortlist providers or
-          send event requests.
-        </Typography>
+        <Box className="hero-copy">
+          <p className="eyebrow">A LITTLE MAGIC FOR YOUR NEXT BIG DAY</p>
+          <Typography variant="h1" className="hero-title">
+            Make your big day feel like <span>magic.</span>
+          </Typography>
+          <Typography color="text.secondary" sx={{ maxWidth: 570, fontSize: 18 }}>
+            From the first idea to the final dance, find the people who make
+            your celebration feel like yours.
+          </Typography>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 3 }}>
+            <Button variant="contained" onClick={onBrowse}>
+              Find your event team
+            </Button>
+            <Button className="hero-secondary-button" variant="outlined" onClick={onSignup}>
+              Start planning
+            </Button>
+          </Stack>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Weddings · birthdays · family celebrations · and everything in between
+          </Typography>
+        </Box>
+        <Box className="hero-art" aria-hidden="true">
+          <span className="hero-art-glow" />
+          <span className="hero-flower flower-one">✿</span>
+          <span className="hero-flower flower-two">✿</span>
+          <span className="hero-flower flower-three">✿</span>
+          <span className="hero-confetti confetti-one">✦</span>
+          <span className="hero-confetti confetti-two">✧</span>
+          <span className="hero-confetti confetti-three">✦</span>
+          <Paper className="celebration-card" elevation={0}>
+            <span className="celebration-card-ribbon">YOUR DAY, YOUR WAY</span>
+            <span className="celebration-card-symbol">
+              <CelebrationOutlinedIcon />
+            </span>
+            <span className="celebration-card-title">Let the good<br />days begin</span>
+            <span className="celebration-card-caption">Plan something unforgettable</span>
+            <span className="celebration-card-dots"><i /><i /><i /></span>
+          </Paper>
+          <Paper className="floating-note floating-note-top" elevation={0}>
+            <span>✦</span> Made for your moment
+          </Paper>
+          <Paper className="floating-note floating-note-bottom" elevation={0}>
+            <EventAvailableOutlinedIcon /> Your celebration starts here
+          </Paper>
+          <span className="hero-art-orbit orbit-one" />
+          <span className="hero-art-orbit orbit-two" />
+        </Box>
       </Box>
 
       <Box component="section" className="home-section">

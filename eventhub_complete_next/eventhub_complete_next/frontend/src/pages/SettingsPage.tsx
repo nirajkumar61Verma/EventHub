@@ -12,6 +12,7 @@ import {
   Typography,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
+import { api } from "../api/client";
 import ProfilePage, { type ProfileValues } from "./ProfilePage";
 
 type Preferences = {
@@ -63,12 +64,10 @@ export default function SettingsPage({
 
   useEffect(() => {
     let active = true;
-    fetch("http://localhost:8000/api/v1/settings/notifications", {
+    api("/settings/notifications", {
       headers: { Authorization: `Bearer ${localStorage.getItem("eh_token") || ""}` },
     })
-      .then(async (response) => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.detail || "Unable to load settings.");
+      .then((data) => {
         if (active) setPreferences(data);
       })
       .catch((cause: unknown) => {
@@ -90,7 +89,7 @@ export default function SettingsPage({
     setPreferencesError("");
     setPreferencesMessage("");
     try {
-      const response = await fetch("http://localhost:8000/api/v1/settings/notifications", {
+      const data = await api("/settings/notifications", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -98,8 +97,6 @@ export default function SettingsPage({
         },
         body: JSON.stringify(preferences),
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || "Unable to save settings.");
       setPreferences(data);
       setPreferencesMessage("Notification preferences saved.");
     } catch (cause) {
@@ -119,7 +116,7 @@ export default function SettingsPage({
     }
     setPasswordSaving(true);
     try {
-      const response = await fetch("http://localhost:8000/api/v1/settings/password", {
+      await api("/settings/password", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -127,8 +124,6 @@ export default function SettingsPage({
         },
         body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || "Unable to change password.");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
