@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../../api/client";
 
-export default function ProviderDashboard() {
-  const [tab, setTab] = useState("enquiries");
+export default function ProviderDashboard({
+  initialTab = "enquiries",
+}: {
+  initialTab?: string;
+}) {
+  const [tab, setTab] = useState(initialTab);
   const [enquiries, setEnquiries] = useState<any[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
   const [form, setForm] = useState<any>({});
@@ -265,6 +269,22 @@ export default function ProviderDashboard() {
               <section className="provider-profile-section">
                 <div className="provider-profile-section-heading">
                   <span>04</span>
+                  <div><h3>Contact details</h3><p>Set a public contact number customers can use without exposing your sign-in phone.</p></div>
+                </div>
+                <div className="provider-profile-fields">
+                  <label htmlFor="provider-contact-email">Public email address (optional)
+                    <input id="provider-contact-email" type="email" autoComplete="email" maxLength={255} value={form.contact_email || ""} onChange={(event) => setForm({ ...form, contact_email: event.target.value })} placeholder="you@example.com" />
+                  </label>
+                  <label htmlFor="provider-alternate-contact-phone">Public contact mobile number (optional)
+                    <input id="provider-alternate-contact-phone" type="tel" autoComplete="tel" maxLength={30} value={form.alternate_contact_phone || ""} onChange={(event) => setForm({ ...form, alternate_contact_phone: event.target.value })} placeholder="+91 98765 43210" />
+                  </label>
+                  <p className="provider-contact-privacy provider-profile-field-wide">Your primary mobile number is for signing in and is not shown here. The alternative number and public email are visible to anyone viewing your public EventHub profile.</p>
+                </div>
+              </section>
+
+              <section className="provider-profile-section">
+                <div className="provider-profile-section-heading">
+                  <span>05</span>
                   <div><h3>Social links</h3><p>Optional links where customers can learn more about your work.</p></div>
                 </div>
                 <div className="provider-profile-fields">

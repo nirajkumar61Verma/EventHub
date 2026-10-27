@@ -22,7 +22,12 @@ export default function App() {
   const [user, setUser] = useState<any>(() =>
     JSON.parse(localStorage.getItem("eh_user") || "null"),
   );
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState(() =>
+    new URLSearchParams(window.location.search).has("ref") &&
+    !localStorage.getItem("eh_token")
+      ? "signup"
+      : "home",
+  );
   const [providerId, setProviderId] = useState(0);
   const [requestProviderId, setRequestProviderId] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
@@ -76,11 +81,17 @@ export default function App() {
   }
 
   const loadProfile = useCallback(
-    async (): Promise<ProfileValues> => api("/profile"),
+    async (): Promise<ProfileValues> => {
+      const profile = await api("/profile");
+      const nextUser = { ...profile, name: profile.full_name };
+      localStorage.setItem("eh_user", JSON.stringify(nextUser));
+      setUser(nextUser);
+      return profile;
+    },
     [],
   );
 
-  async function saveProfile(values: ProfileValues) {
+  async function saveProfile(values: Omit<ProfileValues, "referral_code">) {
     const updated = await api("/profile", {
       method: "PUT",
       body: JSON.stringify(values),
@@ -138,6 +149,10 @@ export default function App() {
           user={user}
           onLogin={() => setPage("login")}
           onRequest={startEventRequest}
+          onOpen={(id) => {
+            setProviderId(id);
+            setPage("provider-profile");
+          }}
         />
       )}
       {page === "event-request" &&
@@ -189,9 +204,12 @@ export default function App() {
           onProfileSave={saveProfile}
         />
       )}
-      {page === "provider" &&
+      {(page === "provider" || page === "provider-edit") &&
         ["PROVIDER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
-        <ProviderDashboard />
+        <ProviderDashboard
+          key={page}
+          initialTab={page === "provider-edit" ? "profile" : "enquiries"}
+        />
       )}
       {page === "admin" && user?.role === "ADMIN" && <AdminDashboard />}
       <AppFooter onPage={setPage} />

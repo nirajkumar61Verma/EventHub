@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
+  EmailOutlined,
   Facebook,
   Instagram,
   Language,
   LinkedIn,
+  PhoneOutlined,
   YouTube,
+  WhatsApp,
 } from "@mui/icons-material";
 import { api } from "../../api/client";
 
@@ -13,6 +16,12 @@ type ProviderProfileProps = {
   user: any;
   onLogin: () => void;
   onRequest: (providerId: number) => void;
+  onOpen: (providerId: number) => void;
+};
+
+type ReferralNetwork = {
+  chain: { provider_id: number | null; name: string; kind: "provider" | "community" }[];
+  referred_providers: { id: number; business_name: string; category: string }[];
 };
 
 export default function ProviderProfile({
@@ -20,9 +29,15 @@ export default function ProviderProfile({
   user,
   onLogin,
   onRequest,
+  onOpen,
 }: ProviderProfileProps) {
   const [provider, setProvider] = useState<any>();
   const [reviews, setReviews] = useState<any[]>([]);
+  const [referralNetwork, setReferralNetwork] = useState<ReferralNetwork>({
+    chain: [],
+    referred_providers: [],
+  });
+  const [referralError, setReferralError] = useState("");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [message, setMessage] = useState("");
@@ -30,12 +45,23 @@ export default function ProviderProfile({
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    const [details, providerReviews] = await Promise.all([
+    const [details, providerReviews, referralResult] = await Promise.all([
       api(`/providers/${id}`),
       api(`/providers/${id}/reviews`),
+      api(`/providers/${id}/referrals`)
+        .then((data: ReferralNetwork) => ({ data, error: "" }))
+        .catch((cause: unknown) => ({
+          data: null,
+          error:
+            cause instanceof Error
+              ? cause.message
+              : "Unable to load referral connections.",
+        })),
     ]);
     setProvider(details);
     setReviews(providerReviews);
+    if (referralResult.data) setReferralNetwork(referralResult.data);
+    setReferralError(referralResult.error);
   }, [id]);
 
   useEffect(() => {
@@ -92,6 +118,13 @@ export default function ProviderProfile({
   }));
   const reviewTotal = reviews.length;
   const averageRating = Number(provider.rating || 0);
+  const contactNumbers = provider.alternate_contact_phone
+    ? [{ label: "Public contact number", number: provider.alternate_contact_phone }]
+    : [];
+  const whatsappMessage = `Hi ${provider.business_name}, I found your profile on EventHub and would like to know more about your services.`;
+  const hasReferralNetwork =
+    referralNetwork.chain.length > 1 ||
+    referralNetwork.referred_providers.length > 0;
 
   return (
     <main className="provider-profile-page">
@@ -148,6 +181,132 @@ export default function ProviderProfile({
           )}
         </div>
       </div>
+      {(provider.contact_email || contactNumbers.length > 0) && (
+        <section className="card provider-contact-card" aria-label="Contact provider directly">
+          <div className="provider-contact-heading">
+            <p className="provider-profile-eyebrow">LET'S TALK DETAILS</p>
+            <h2>Contact this provider directly</h2>
+            <p>Reach out with questions about availability, services, or pricing.</p>
+          </div>
+          <div className="provider-contact-links">
+            {contactNumbers.map(({ label, number }) => {
+              const rawNumber = String(number).replace(/\D/g, "");
+              const whatsappNumber =
+                rawNumber.length === 10
+                  ? `91${rawNumber}`
+                  : rawNumber.length === 11 && rawNumber.startsWith("0")
+                    ? `91${rawNumber.slice(1)}`
+                    : rawNumber;
+              return (
+                <div className="provider-contact-number" key={label}>
+                  <a href={`tel:${String(number).replace(/[^\d+]/g, "")}`}>
+                    <PhoneOutlined aria-hidden="true" />
+                    <span><small>{label}</small><strong>{number}</strong></span>
+                  </a>
+                  {whatsappNumber.length >= 7 && (
+                    <a
+                      className="provider-whatsapp-link"
+                      href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappMessage)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Message ${provider.business_name} using ${label} on WhatsApp`}
+                    >
+                      <WhatsApp aria-hidden="true" />
+                      <span><small>Message on</small><strong>WhatsApp</strong></span>
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+            {provider.contact_email && (
+              <a href={`mailto:${provider.contact_email}`}>
+                <EmailOutlined aria-hidden="true" />
+                <span><small>Email</small><strong>{provider.contact_email}</strong></span>
+              </a>
+            )}
+          </div>
+        </section>
+      )}
+      {(hasReferralNetwork || referralError) && (
+        <section className="provider-referral-network card" aria-labelledby="provider-referral-title">
+          <div className="provider-referral-heading">
+            <p className="provider-profile-eyebrow">COMMUNITY CONNECTIONS</p>
+            <h2 id="provider-referral-title">Provider referral network</h2>
+            <p>See how providers are connected through EventHub referrals.</p>
+          </div>
+          {referralError ? (
+            <p role="alert" className="provider-referral-error">
+              Referral connections could not be loaded: {referralError}
+            </p>
+          ) : (
+            <>
+              {referralNetwork.chain.length > 1 && (
+                <ol className="provider-referral-chain" aria-label="Referral chain">
+                  {referralNetwork.chain.map((entry, index) => {
+                    const isCurrentProvider = index === referralNetwork.chain.length - 1;
+                    return (
+                      <li
+                        className={`provider-referral-node${isCurrentProvider ? " is-current" : ""}`}
+                        key={`${entry.kind}-${entry.provider_id ?? index}-${index}`}
+                      >
+                        <span className="provider-referral-marker" aria-hidden="true">
+                          {entry.kind === "provider" ? entry.name[0]?.toUpperCase() : "•"}
+                        </span>
+                        <span className="provider-referral-copy">
+                          <small>
+                            {isCurrentProvider
+                              ? "This provider"
+                              : entry.kind === "provider"
+                                ? "Referred through"
+                                : "Referred by an EventHub community member"}
+                          </small>
+                          {entry.kind === "provider" && entry.provider_id && !isCurrentProvider ? (
+                            <button
+                              type="button"
+                              className="provider-referral-link"
+                              onClick={() => onOpen(entry.provider_id!)}
+                            >
+                              {entry.name}
+                            </button>
+                          ) : (
+                            <strong>{entry.name}</strong>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+              {referralNetwork.referred_providers.length > 0 && (
+                <div className="provider-referral-children">
+                  <h3>Providers referred by this provider</h3>
+                  <div className="provider-referral-list">
+                    {referralNetwork.referred_providers.map((referred) => (
+                      <button
+                        type="button"
+                        key={referred.id}
+                        onClick={() => onOpen(referred.id)}
+                      >
+                        <span className="provider-referral-avatar" aria-hidden="true">
+                          {referred.business_name[0]?.toUpperCase() || "P"}
+                        </span>
+                        <span>
+                          <strong>{referred.business_name}</strong>
+                          <small>{referred.category}</small>
+                        </span>
+                        <span className="provider-referral-arrow" aria-hidden="true">→</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="provider-referral-disclaimer">
+                Referral connections show who introduced providers to EventHub; they are not a guarantee or endorsement. Community members’ names are kept private. Please review each provider’s details and feedback before booking.
+              </p>
+            </>
+          )}
+        </section>
+      )}
       <div className="card provider-request-card">
         <div>
           <p className="provider-profile-eyebrow">LET'S MAKE IT MEMORABLE</p>

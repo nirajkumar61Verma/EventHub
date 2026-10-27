@@ -7,7 +7,7 @@ type LoginPageProps = {
 };
 
 export default function LoginPage({ onDone, onSignup }: LoginPageProps) {
-  const [values, setValues] = useState({ email: "", password: "" });
+  const [values, setValues] = useState({ identifier: "", password: "" });
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -32,12 +32,12 @@ export default function LoginPage({ onDone, onSignup }: LoginPageProps) {
         <h1>Welcome back</h1>
         <input
           required
-          type="email"
-          placeholder="Email"
-          autoComplete="email"
-          value={values.email}
+            type="text"
+            placeholder="Email or mobile number"
+            autoComplete="username"
+            value={values.identifier}
           onChange={(event) =>
-            setValues((current) => ({ ...current, email: event.target.value }))
+              setValues((current) => ({ ...current, identifier: event.target.value }))
           }
         />
         <input

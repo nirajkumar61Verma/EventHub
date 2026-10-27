@@ -30,6 +30,7 @@ export type SignupValues = {
   full_name: string;
   email: string;
   phone: string;
+  alternate_contact_phone: string;
   password: string;
   role: "CUSTOMER" | "PROVIDER";
   business_name: string;
@@ -46,6 +47,8 @@ export type SignupValues = {
   city: string;
   service_radius: number;
   years_experience: number;
+  referral_source: string;
+  referral_code: string;
 };
 
 type SignupPageProps = {
@@ -57,6 +60,7 @@ const initialValues: SignupValues = {
   full_name: "",
   email: "",
   phone: "",
+  alternate_contact_phone: "",
   password: "",
   role: "CUSTOMER",
   business_name: "",
@@ -73,7 +77,19 @@ const initialValues: SignupValues = {
   city: "",
   service_radius: 25,
   years_experience: 1,
+  referral_source: "",
+  referral_code: "",
 };
+
+const referralSources = [
+  "Service provider",
+  "Customer referral",
+  "Social media",
+  "Search engine",
+  "EventHub website",
+  "Friend or family",
+  "Other",
+];
 
 const fieldSx = {
   "& .MuiOutlinedInput-root": {
@@ -83,7 +99,13 @@ const fieldSx = {
 };
 
 export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
-  const [values, setValues] = useState(initialValues);
+  const [values, setValues] = useState<SignupValues>(() => ({
+    ...initialValues,
+    referral_code: new URLSearchParams(window.location.search)
+      .get("ref")
+      ?.trim()
+      .toUpperCase() || "",
+  }));
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -322,7 +344,7 @@ export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
                   }}
                 />
                 <TextField
-                  label="Phone number"
+                  label="Primary mobile number"
                   type="tel"
                   autoComplete="tel"
                   required
@@ -342,6 +364,26 @@ export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
                   }}
                 />
               </Box>
+              <TextField
+                label="Alternative contact mobile number (optional)"
+                type="tel"
+                autoComplete="tel"
+                fullWidth
+                value={values.alternate_contact_phone}
+                onChange={(event) => update("alternate_contact_phone", event.target.value)}
+                helperText="Your primary number is used to sign in. For providers, this alternative number is shown to customers on your public profile."
+                sx={fieldSx}
+                slotProps={{
+                  htmlInput: { maxLength: 30 },
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PhoneIphoneRounded fontSize="small" />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
               <TextField
                 label="Password"
                 type="password"
@@ -435,6 +477,38 @@ export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
                   ))}
                 </TextField>
               </Box>
+              <Divider>
+                <Typography variant="caption" sx={{ color: "text.secondary", px: 1 }}>
+                  HELP US GROW
+                </Typography>
+              </Divider>
+              <TextField
+                select
+                label="How did you hear about EventHub?"
+                fullWidth
+                value={values.referral_source}
+                onChange={(event) => update("referral_source", event.target.value)}
+                helperText="Optional — this helps us understand how people find EventHub."
+                sx={fieldSx}
+              >
+                <MenuItem value="">Select an answer (optional)</MenuItem>
+                {referralSources.map((source) => (
+                  <MenuItem key={source} value={source}>
+                    {source}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Referral code (optional)"
+                fullWidth
+                value={values.referral_code}
+                onChange={(event) =>
+                  update("referral_code", event.target.value.toUpperCase())
+                }
+                helperText="Enter a code shared by an EventHub customer or service provider."
+                slotProps={{ htmlInput: { maxLength: 20, autoCapitalize: "characters" } }}
+                sx={fieldSx}
+              />
 
               {isProvider && (
                 <>
