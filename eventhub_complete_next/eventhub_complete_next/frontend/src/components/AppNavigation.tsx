@@ -321,11 +321,18 @@ export default function AppNavigation({
                   <ArrowForwardRoundedIcon className="drawer-link-arrow" />
                 </button>
               </div>
-              {["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
+              {(!user || ["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user.role)) && (
                 <div className="drawer-section">
-                  <p className="drawer-section-title">YOUR CELEBRATION</p>
-                  {drawerLink("Plan an event", "event-request", <EventNoteOutlinedIcon />, true)}
-                  {drawerLink("My planner dashboard", "customer-dashboard", <FavoriteBorderOutlinedIcon />)}
+                  <p className="drawer-section-title">
+                    {user ? "YOUR CELEBRATION" : "PLAN YOUR CELEBRATION"}
+                  </p>
+                  {drawerLink(
+                    "Design your event",
+                    user ? "event-request" : "signup",
+                    <EventNoteOutlinedIcon />,
+                    true,
+                  )}
+                  {user && drawerLink("My planner dashboard", "customer-dashboard", <FavoriteBorderOutlinedIcon />)}
                 </div>
               )}
               {user?.role === "CUSTOMER" && (

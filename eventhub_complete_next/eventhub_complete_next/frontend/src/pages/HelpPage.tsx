@@ -28,6 +28,11 @@ const questions = [
       "Sign in as a customer, choose Plan an event, enter the event details and service requirements, and select one or more providers. Your requests and replies appear in the event-planning flow.",
   },
   {
+    question: "How does the event budget estimate work?",
+    answer:
+      "The city estimate is a planning benchmark from listed starting prices. Selected providers are estimated using their own rate: per-plate/person prices use your guest count and service days, day rates use service days, and event/package rates count once. Selected providers reduce your remaining budget estimate, but a quote request is not a booking or payment. Hourly rates are not estimated until service hours are known, and demo prices are not verified market rates.",
+  },
+  {
     question: "Can I save providers while I decide?",
     answer:
       "Yes. Use Shortlist planner on a provider card. From My planner dashboard, you can compare saved providers, add planning notes, and choose a final planner.",
@@ -45,7 +50,7 @@ const questions = [
   {
     question: "How do I update my account or provider profile?",
     answer:
-      "Use the account icon in the top-right corner for My profile and Settings. Provider Dashboard lets providers update their service profile, logo, social links, enquiries, bookings, and availability.",
+      "Use the account icon in the top-right corner for My profile and Settings. After creating a service-provider account, open Provider Dashboard → Services & menu to add each service, menu item, or package separately. Set its category, price unit (plate, person, hour, day, event, or package), inclusions, and the event types it serves; return later to edit or remove those items. Provider Dashboard also lets you edit your primary profile service, manage enquiries, bookings, and availability. Customers see common service suggestions for their event type alongside services offered by providers.",
   },
   {
     question: "Does EventHub collect payment or handle refunds?",
@@ -60,7 +65,7 @@ const questions = [
   {
     question: "What information is shared when I request a quote?",
     answer:
-      "Your event brief can include event type, date, location, guest count, budget, service needs, and notes. It is sent to the provider or providers you select so they can respond. Avoid adding passwords, identity documents, or payment-card details to event notes.",
+      "You can design an event with dates, day-by-day functions, selected services, location, guest count, budget, and notes, then send it to selected providers. From a provider profile, you can also send a custom message without creating an event plan. Avoid adding passwords, identity documents, or payment-card details to event notes or messages.",
   },
   {
     question: "What can people see on a provider profile?",

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, date
 from enum import Enum
 import base64
 import binascii
+import json
 import os
 import re
 import secrets
@@ -101,6 +102,29 @@ class Provider(Base):
     review_count: Mapped[int] = mapped_column(Integer, default=0)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verification_status: Mapped[str] = mapped_column(String(30), default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ProviderOffering(Base):
+    __tablename__="provider_offerings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(60), default="Service")
+    description: Mapped[str] = mapped_column(Text, default="")
+    inclusions: Mapped[str] = mapped_column(Text, default="")
+    price: Mapped[float] = mapped_column(Float)
+    price_unit: Mapped[str] = mapped_column(String(20))
+    minimum_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_types: Mapped[str] = mapped_column(Text, default="[]")
+    all_events: Mapped[bool] = mapped_column(Boolean, default=False)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+class ProviderMessage(Base):
+    __tablename__="provider_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class PlannerShortlist(Base):
@@ -309,6 +333,45 @@ class ProviderIn(BaseModel):
         if isinstance(value,str) and not value.strip():
             return None
         return value
+class ProviderOfferingIn(BaseModel):
+    title:str=Field(min_length=1,max_length=120)
+    category:str=Field(default="Service",min_length=1,max_length=60)
+    description:str=Field(default="",max_length=1000)
+    inclusions:str=Field(default="",max_length=1000)
+    price:float=Field(gt=0,allow_inf_nan=False)
+    price_unit:str=Field(pattern=r"^(plate|person|hour|day|event|package)$")
+    minimum_quantity:int|None=Field(default=None,ge=1,le=100000)
+    event_types:list[str]=Field(default_factory=list,max_length=20)
+    all_events:bool=False
+
+    @field_validator("title","category","price_unit",mode="before")
+    @classmethod
+    def strip_offering_labels(cls,value):
+        return value.strip() if isinstance(value,str) else value
+
+    @field_validator("event_types")
+    @classmethod
+    def clean_event_types(cls,value):
+        cleaned=[item.strip() for item in value if item.strip()]
+        if len(cleaned)!=len(set(item.casefold() for item in cleaned)):
+            raise ValueError("Choose each event type only once")
+        if any(len(item)>100 for item in cleaned):
+            raise ValueError("Event type names must be 100 characters or fewer")
+        return cleaned
+
+class ProviderOfferingsIn(BaseModel):
+    offerings:list[ProviderOfferingIn]=Field(max_length=50)
+class ProviderMessageIn(BaseModel):
+    message:str=Field(min_length=1,max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def message_must_not_be_blank(cls,value):
+        message=value.strip()
+        if not message:
+            raise ValueError("Message cannot be blank")
+        return message
+
 class CategoryIn(BaseModel): name:str; description:str=""
 class ServiceIn(BaseModel): category_id:int; name:str
 class QuoteIn(BaseModel):
@@ -330,6 +393,8 @@ class ReportIn(BaseModel): reason:str
 def startup():
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE provider_offerings ADD COLUMN IF NOT EXISTS event_types TEXT NOT NULL DEFAULT '[]'"))
+        connection.execute(text("ALTER TABLE provider_offerings ADD COLUMN IF NOT EXISTS all_events BOOLEAN NOT NULL DEFAULT FALSE"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS alternate_contact_phone VARCHAR(30)"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS city VARCHAR(100) NOT NULL DEFAULT ''"))
@@ -581,9 +646,31 @@ def providers(q:str="",city:str="",category:str="",verified:bool|None=None,s:Ses
     rows=s.query(Provider).join(User,Provider.user_id==User.id).filter(User.active.is_(True)).all()
     if q: rows=[p for p in rows if q.lower() in (p.business_name+" "+p.description).lower()]
     if city: rows=[p for p in rows if p.city.lower()==city.lower()]
-    if category: rows=[p for p in rows if category.lower() in p.category.lower()]
     if verified is not None: rows=[p for p in rows if p.verified==verified]
-    return [provider_json(p) for p in rows]
+    if not rows:
+        return []
+    provider_ids=[p.id for p in rows]
+    offers=s.query(ProviderOffering).filter(
+        ProviderOffering.provider_id.in_(provider_ids)
+    ).order_by(ProviderOffering.position,ProviderOffering.id).all()
+    offerings_by_provider={}
+    for offer in offers:
+        offerings_by_provider.setdefault(offer.provider_id,[]).append(provider_offering_json(offer))
+    if category:
+        search_category=category.casefold()
+        rows=[
+            p for p in rows
+            if search_category in p.category.casefold()
+            or any(
+                search_category in offer["category"].casefold()
+                or search_category in offer["title"].casefold()
+                for offer in offerings_by_provider.get(p.id,[])
+            )
+        ]
+    return [
+        {**provider_json(p),"offerings":offerings_by_provider.get(p.id,[])}
+        for p in rows
+    ]
 
 @app.get("/api/v1/providers/{pid}")
 def provider(pid:int,s:Session=Depends(db)):
@@ -678,6 +765,20 @@ def provider_json(p,include_logo=False):
             "linkedin_url":p.linkedin_url,"website_url":p.website_url,
             "provider_type":p.provider_type,"service_radius":p.service_radius,"years_experience":p.years_experience,"starting_price":p.starting_price,"price_unit":p.price_unit,
             "logo_data":p.logo_data if include_logo else "","rating":p.rating,"review_count":p.review_count,"verified":p.verified,"verification_status":p.verification_status}
+
+def provider_offering_json(offer:ProviderOffering):
+    return {
+        "id":offer.id,
+        "title":offer.title,
+        "category":offer.category,
+        "description":offer.description,
+        "inclusions":offer.inclusions,
+        "price":offer.price,
+        "price_unit":offer.price_unit,
+        "minimum_quantity":offer.minimum_quantity,
+        "event_types":json.loads(offer.event_types or "[]"),
+        "all_events":offer.all_events,
+    }
 
 def refresh_provider_rating(s:Session,p:Provider):
     reviews=s.query(Review).filter_by(provider_id=p.id,published=True).all()
@@ -859,6 +960,85 @@ def get_provider_profile(u=Depends(current_user),s:Session=Depends(db)):
     p=s.query(Provider).filter_by(user_id=u.id).first()
     if not p: raise HTTPException(404,"Provider profile not found")
     return provider_json(p,include_logo=True)
+
+@app.get("/api/v1/providers/{pid}/offerings")
+def public_provider_offerings(pid:int,s:Session=Depends(db)):
+    p=s.get(Provider,pid)
+    if not p or not s.query(User).filter_by(id=p.user_id,active=True).first():
+        raise HTTPException(404,"Provider not found")
+    offers=s.query(ProviderOffering).filter_by(provider_id=p.id).order_by(ProviderOffering.position,ProviderOffering.id).all()
+    return [provider_offering_json(offer) for offer in offers]
+
+@app.get("/api/v1/provider/offerings")
+def get_provider_offerings(u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p: raise HTTPException(404,"Provider profile not found")
+    offers=s.query(ProviderOffering).filter_by(provider_id=p.id).order_by(ProviderOffering.position,ProviderOffering.id).all()
+    return [provider_offering_json(offer) for offer in offers]
+
+@app.put("/api/v1/provider/offerings")
+def replace_provider_offerings(x:ProviderOfferingsIn,u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p: raise HTTPException(404,"Provider profile not found")
+    for item in x.offerings:
+        if item.all_events and item.event_types:
+            raise HTTPException(422,"Choose either all event types or specific event types for each offering.")
+        if not item.all_events and not item.event_types:
+            raise HTTPException(422,"Choose at least one event type or select All event types for each offering.")
+    s.query(ProviderOffering).filter_by(provider_id=p.id).delete(synchronize_session=False)
+    for position,item in enumerate(x.offerings):
+        s.add(ProviderOffering(
+            provider_id=p.id,
+            title=item.title,
+            category=item.category,
+            description=item.description.strip(),
+            inclusions=item.inclusions.strip(),
+            price=item.price,
+            price_unit=item.price_unit,
+            minimum_quantity=item.minimum_quantity,
+            event_types=json.dumps(item.event_types,ensure_ascii=False),
+            all_events=item.all_events,
+            position=position,
+        ))
+    s.commit()
+    offers=s.query(ProviderOffering).filter_by(provider_id=p.id).order_by(ProviderOffering.position,ProviderOffering.id).all()
+    return [provider_offering_json(offer) for offer in offers]
+
+@app.post("/api/v1/providers/{pid}/messages")
+def send_provider_message(pid:int,x:ProviderMessageIn,u=Depends(current_user),s:Session=Depends(db)):
+    require_customer(u)
+    p=s.get(Provider,pid)
+    if not p or not s.query(User).filter_by(id=p.user_id,active=True).first():
+        raise HTTPException(404,"Provider not found")
+    if p.user_id==u.id:
+        raise HTTPException(400,"You cannot message your own provider profile")
+    message=ProviderMessage(provider_id=p.id,customer_id=u.id,message=x.message)
+    s.add(message)
+    s.commit()
+    s.refresh(message)
+    return {"id":message.id,"message":"Your message was sent to the provider."}
+
+@app.get("/api/v1/provider/messages")
+def provider_messages(u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p:
+        raise HTTPException(404,"Provider profile not found")
+    rows=s.query(ProviderMessage,User).join(User,ProviderMessage.customer_id==User.id).filter(
+        ProviderMessage.provider_id==p.id,
+        User.active.is_(True),
+    ).order_by(ProviderMessage.created_at.desc(),ProviderMessage.id.desc()).all()
+    return [{
+        "id":message.id,
+        "customer_name":customer.name,
+        "message":message.message,
+        "created_at":message.created_at.isoformat(),
+    } for message,customer in rows]
 
 @app.get("/api/v1/provider/enquiries")
 def enquiries(u=Depends(current_user),s:Session=Depends(db)):

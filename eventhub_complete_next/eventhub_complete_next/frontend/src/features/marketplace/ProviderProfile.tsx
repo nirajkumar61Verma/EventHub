@@ -32,6 +32,7 @@ export default function ProviderProfile({
   onOpen,
 }: ProviderProfileProps) {
   const [provider, setProvider] = useState<any>();
+  const [offerings, setOfferings] = useState<any[]>([]);
   const [reviews, setReviews] = useState<any[]>([]);
   const [referralNetwork, setReferralNetwork] = useState<ReferralNetwork>({
     chain: [],
@@ -40,14 +41,21 @@ export default function ProviderProfile({
   const [referralError, setReferralError] = useState("");
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
+  const [isReviewFormOpen, setIsReviewFormOpen] = useState(false);
+  const [isMessageFormOpen, setIsMessageFormOpen] = useState(false);
+  const [customMessage, setCustomMessage] = useState("");
+  const [messageSent, setMessageSent] = useState("");
+  const [messageError, setMessageError] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    const [details, providerReviews, referralResult] = await Promise.all([
+    const [details, providerReviews, providerOfferings, referralResult] = await Promise.all([
       api(`/providers/${id}`),
       api(`/providers/${id}/reviews`),
+      api(`/providers/${id}/offerings`),
       api(`/providers/${id}/referrals`)
         .then((data: ReferralNetwork) => ({ data, error: "" }))
         .catch((cause: unknown) => ({
@@ -60,6 +68,7 @@ export default function ProviderProfile({
     ]);
     setProvider(details);
     setReviews(providerReviews);
+    setOfferings(providerOfferings);
     if (referralResult.data) setReferralNetwork(referralResult.data);
     setReferralError(referralResult.error);
   }, [id]);
@@ -82,10 +91,31 @@ export default function ProviderProfile({
       });
       setMessage("Your rating and comment have been saved.");
       await load();
+      setIsReviewFormOpen(false);
     } catch (cause: any) {
       setError(cause.message || "Unable to save your review.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function submitProviderMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSendingMessage(true);
+    setMessageError("");
+    setMessageSent("");
+    try {
+      const result = await api(`/providers/${id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ message: customMessage }),
+      });
+      setMessageSent(result.message || "Your message was sent to the provider.");
+      setCustomMessage("");
+      setIsMessageFormOpen(false);
+    } catch (cause: any) {
+      setMessageError(cause.message || "Unable to send your message.");
+    } finally {
+      setSendingMessage(false);
     }
   }
 
@@ -152,7 +182,9 @@ export default function ProviderProfile({
           </p>
           <p>{provider.description || "Professional event service provider."}</p>
           <h3>
-            ₹{provider.starting_price} / {provider.price_unit}
+            {Number(provider.starting_price) > 0
+              ? `₹${Number(provider.starting_price).toLocaleString("en-IN")} / ${provider.price_unit}`
+              : "Contact for price"}
           </h3>
           <p className="provider-profile-rating" aria-label={`${averageRating} out of 5 stars`}>
             <span aria-hidden="true">★</span> {averageRating.toFixed(1)} ·{" "}
@@ -181,6 +213,50 @@ export default function ProviderProfile({
           )}
         </div>
       </div>
+      {offerings.length > 0 && (
+        <section className="provider-offerings" aria-labelledby="provider-offerings-title">
+          <div className="provider-reviews-heading">
+            <div>
+              <p className="provider-profile-eyebrow">SERVICES & PRICING</p>
+              <h2 id="provider-offerings-title">What this provider offers</h2>
+            </div>
+            <span>{offerings.length} {offerings.length === 1 ? "offering" : "offerings"}</span>
+          </div>
+          <div className="provider-offerings-grid">
+            {offerings.map((offer) => (
+              <article className="card provider-offering-card" key={offer.id}>
+                <div className="provider-offering-heading">
+                  <span>{offer.category}</span>
+                  {offer.minimum_quantity && <small>Minimum {Number(offer.minimum_quantity).toLocaleString("en-IN")} {offer.price_unit === "person" ? "people" : `${offer.price_unit}s`}</small>}
+                </div>
+                <h3>{offer.title}</h3>
+                <div className="provider-offering-events" aria-label="Suitable for events">
+                  <strong>Suitable for</strong>
+                  <div>
+                    {offer.all_events
+                      ? <span>All event types</span>
+                      : offer.event_types?.length
+                        ? offer.event_types.map((eventType: string) => <span key={eventType}>{eventType}</span>)
+                        : <span>Event types not listed</span>}
+                  </div>
+                </div>
+                {offer.description && <p>{offer.description}</p>}
+                {offer.inclusions && (
+                  <div className="provider-offering-inclusions">
+                    <strong>Included</strong>
+                    <p>{offer.inclusions}</p>
+                  </div>
+                )}
+                <div className="provider-offering-price">
+                  <strong>₹{Number(offer.price).toLocaleString("en-IN")}</strong>
+                  <span>per {offer.price_unit}</span>
+                </div>
+              </article>
+            ))}
+          </div>
+          <p className="provider-offerings-disclaimer">Prices are indicative. Confirm availability, final quantities, travel or setup charges, and the final quote directly with the provider.</p>
+        </section>
+      )}
       {(provider.contact_email || contactNumbers.length > 0) && (
         <section className="card provider-contact-card" aria-label="Contact provider directly">
           <div className="provider-contact-heading">
@@ -307,31 +383,65 @@ export default function ProviderProfile({
           )}
         </section>
       )}
-      <div className="card provider-request-card">
+      <section className="card provider-request-card">
         <div>
           <p className="provider-profile-eyebrow">LET'S MAKE IT MEMORABLE</p>
-          <h2>Send an event request</h2>
+          <h2>Contact this provider</h2>
         </div>
         <p>
-          Share your event date, guest count, location, and requirements to ask
-          this provider for a quote.
+          Design your event with dates, functions, and selected services to request a quote, or send a quick custom message.
         </p>
         {["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) ? (
-          <button
-            type="button"
-            className="primary"
-            onClick={() => onRequest(provider.id)}
-          >
-            Plan event with this provider
-          </button>
+          <div className="provider-request-actions">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => onRequest(provider.id)}
+            >
+              Design event & request quote
+            </button>
+            <button
+              type="button"
+              className="provider-message-toggle"
+              aria-expanded={isMessageFormOpen}
+              aria-controls="provider-custom-message-form"
+              onClick={() => {
+                setIsMessageFormOpen((isOpen) => !isOpen);
+                setMessageError("");
+              }}
+            >
+              {isMessageFormOpen ? "Close message form" : "Send a custom message"}
+            </button>
+            {isMessageFormOpen && (
+              <form id="provider-custom-message-form" className="provider-custom-message-form" onSubmit={submitProviderMessage}>
+                <label htmlFor="provider-custom-message">Your message <span>*</span></label>
+                <textarea
+                  id="provider-custom-message"
+                  required
+                  minLength={1}
+                  maxLength={2000}
+                  rows={4}
+                  value={customMessage}
+                  onChange={(event) => setCustomMessage(event.target.value)}
+                  placeholder={`Ask ${provider.business_name} about availability, a service, or a custom requirement.`}
+                />
+                <small>Up to 2,000 characters. Do not include passwords, payment-card details, or sensitive documents.</small>
+                {messageError && <p role="alert" className="error">{messageError}</p>}
+                <button type="submit" className="primary" disabled={sendingMessage || !customMessage.trim()}>
+                  {sendingMessage ? "Sending message..." : "Send message"}
+                </button>
+              </form>
+            )}
+            {messageSent && <p role="status" className="provider-message-success">{messageSent}</p>}
+          </div>
         ) : user ? (
           <p>Event requests are available to customer accounts.</p>
         ) : (
-          <button type="button" className="primary" onClick={onLogin}>
-            Login as a customer to request a quote
-          </button>
+          <div className="provider-request-actions">
+            <button type="button" className="primary" onClick={onLogin}>Login as a customer to contact this provider</button>
+          </div>
         )}
-      </div>
+      </section>
       <section className="provider-reviews">
         <div className="provider-reviews-heading">
           <div>
@@ -403,46 +513,71 @@ export default function ProviderProfile({
           </div>
         )}
         {["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) ? (
-          <form className="card form provider-review-form" onSubmit={submitReview}>
-            <div>
-              <p className="provider-profile-eyebrow">YOUR EXPERIENCE MATTERS</p>
-              <h3>Leave a rating</h3>
-            </div>
-            <span id="provider-rating-label">Choose your star rating</span>
-            <div className="provider-star-picker" role="group" aria-labelledby="provider-rating-label">
-              {[1, 2, 3, 4, 5].map((value) => (
-                <button
-                  key={value}
-                  className={value <= rating ? "selected" : ""}
-                  type="button"
-                  aria-label={`${value} star${value === 1 ? "" : "s"}`}
-                  aria-pressed={rating === value}
-                  onClick={() => setRating(value)}
-                >
-                  {value <= rating ? "★" : "☆"}
-                </button>
-              ))}
-            </div>
-            <label htmlFor="provider-comment">Comment (optional)</label>
-            <textarea
-              id="provider-comment"
-              aria-label="Comment"
-              maxLength={2000}
-              rows={4}
-              value={comment}
-              onChange={(event) => setComment(event.target.value)}
-              placeholder="Share your experience with this provider"
-            />
-            <button className="primary provider-review-submit" type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Submit rating"}
+          <>
+            <button
+              className="primary"
+              type="button"
+              aria-expanded={isReviewFormOpen}
+              aria-controls="provider-review-form"
+              onClick={() => setIsReviewFormOpen((isOpen) => !isOpen)}
+            >
+              {isReviewFormOpen ? "Close review form" : "Leave a rating"}
             </button>
-            {message && <p role="status">{message}</p>}
-            {error && (
-              <p role="alert" className="error">
-                {error}
-              </p>
+            {isReviewFormOpen && (
+              <form
+                id="provider-review-form"
+                className="card form provider-review-form"
+                onSubmit={submitReview}
+              >
+                <div>
+                  <p className="provider-profile-eyebrow">YOUR EXPERIENCE MATTERS</p>
+                  <h3>Leave a rating</h3>
+                </div>
+                <span id="provider-rating-label">Choose your star rating</span>
+                <div
+                  className="provider-star-picker"
+                  role="group"
+                  aria-labelledby="provider-rating-label"
+                >
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      key={value}
+                      className={value <= rating ? "selected" : ""}
+                      type="button"
+                      aria-label={`${value} star${value === 1 ? "" : "s"}`}
+                      aria-pressed={rating === value}
+                      onClick={() => setRating(value)}
+                    >
+                      {value <= rating ? "★" : "☆"}
+                    </button>
+                  ))}
+                </div>
+                <label htmlFor="provider-comment">Comment (optional)</label>
+                <textarea
+                  id="provider-comment"
+                  aria-label="Comment"
+                  maxLength={2000}
+                  rows={4}
+                  value={comment}
+                  onChange={(event) => setComment(event.target.value)}
+                  placeholder="Share your experience with this provider"
+                />
+                <button
+                  className="primary provider-review-submit"
+                  type="submit"
+                  disabled={saving}
+                >
+                  {saving ? "Saving..." : "Submit rating"}
+                </button>
+                {message && <p role="status">{message}</p>}
+                {error && (
+                  <p role="alert" className="error">
+                    {error}
+                  </p>
+                )}
+              </form>
             )}
-          </form>
+          </>
         ) : user ? (
           <p>Only customer accounts can rate service providers.</p>
         ) : (

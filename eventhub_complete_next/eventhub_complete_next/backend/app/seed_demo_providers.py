@@ -4,32 +4,32 @@ import secrets
 
 from sqlalchemy import func
 
-from app.main import Provider, SessionLocal, User, pwd
+from app.main import Provider, ProviderOffering, SessionLocal, User, pwd
 
 
 DEMO_PROVIDERS = [
     ("Andhra Pradesh", "Visakhapatnam", "Coastal Moments Photography", "Candid stories by the sea", "Photography", 28000, 7),
-    ("Andhra Pradesh", "Vijayawada", "Krishna Celebration Catering", "Regional menus for every gathering", "Catering", 18000, 9),
+    ("Andhra Pradesh", "Vijayawada", "Krishna Celebration Catering", "Regional menus for every gathering", "Catering", 650, 9),
     ("Arunachal Pradesh", "Itanagar", "Hillside Event Decor", "Thoughtful decor inspired by the mountains", "Decoration", 22000, 6),
     ("Assam", "Guwahati", "Brahmaputra Wedding Films", "Wedding films with an Assamese touch", "Photography", 35000, 8),
-    ("Assam", "Dibrugarh", "Tea Garden Celebration Catering", "Local flavours for family celebrations", "Catering", 16000, 5),
+    ("Assam", "Dibrugarh", "Tea Garden Celebration Catering", "Local flavours for family celebrations", "Catering", 500, 5),
     ("Chhattisgarh", "Raipur", "Raipur Rhythm Events", "DJs and sound for lively celebrations", "Music & DJ", 14000, 7),
     ("Goa", "Panaji", "Konkan Coast Event Planning", "Intimate celebrations with coastal charm", "Event Planner", 42000, 10),
     ("Gujarat", "Ahmedabad", "Aangan Wedding Decor", "Colourful wedding and garba decor", "Decoration", 32000, 9),
     ("Gujarat", "Surat", "Surat Celebration Studio", "Photo and video for life's big moments", "Photography", 26000, 6),
     ("Haryana", "Gurugram", "North Star Event Planners", "Corporate and family events, thoughtfully planned", "Event Planner", 55000, 11),
     ("Himachal Pradesh", "Shimla", "Pine & Petal Weddings", "Small mountain weddings, beautifully arranged", "Event Planner", 48000, 8),
-    ("Kerala", "Kochi", "Malabar Table Catering", "Kerala menus for weddings and celebrations", "Catering", 24000, 8),
+    ("Kerala", "Kochi", "Malabar Table Catering", "Kerala menus for weddings and celebrations", "Catering", 850, 8),
     ("Kerala", "Thiruvananthapuram", "Coconut Grove Wedding Films", "Natural wedding photography and films", "Photography", 30000, 7),
     ("Madhya Pradesh", "Indore", "Indore Floral & Stage", "Fresh floral stages and celebration decor", "Decoration", 26000, 7),
-    ("Madhya Pradesh", "Bhopal", "Lakeview Celebration Catering", "Buffets and regional menus for every occasion", "Catering", 19000, 6),
+    ("Madhya Pradesh", "Bhopal", "Lakeview Celebration Catering", "Buffets and regional menus for every occasion", "Catering", 600, 6),
     ("Manipur", "Imphal", "Imphal Wedding Moments", "Warm, candid coverage of local celebrations", "Photography", 21000, 5),
     ("Meghalaya", "Shillong", "Cloud Nine Live Music", "Live music and sound for memorable evenings", "Music & DJ", 17000, 6),
     ("Nagaland", "Kohima", "Kohima Event Collective", "Community-minded event planning and coordination", "Event Planner", 28000, 7),
     ("Punjab", "Amritsar", "Golden Temple City Celebrations", "Vibrant Punjabi wedding decor and coordination", "Decoration", 36000, 9),
     ("Sikkim", "Gangtok", "Himalayan Light Photography", "Mountain weddings and family event portraits", "Photography", 25000, 6),
     ("Tamil Nadu", "Chennai", "Marina City Event Planners", "Modern planning for weddings and business events", "Event Planner", 50000, 10),
-    ("Tamil Nadu", "Coimbatore", "Kovai Celebration Kitchen", "South Indian catering made for sharing", "Catering", 20000, 7),
+    ("Tamil Nadu", "Coimbatore", "Kovai Celebration Kitchen", "South Indian catering made for sharing", "Catering", 700, 7),
     ("Telangana", "Hyderabad", "Deccan Wedding Stories", "Elegant photography for weddings and receptions", "Photography", 38000, 9),
     ("Telangana", "Warangal", "Thousand Pillars Event Decor", "Traditional and contemporary event decoration", "Decoration", 23000, 6),
     ("Tripura", "Agartala", "Agartala Occasion Makers", "Planning and coordination for family events", "Event Planner", 19000, 5),
@@ -40,6 +40,41 @@ DEMO_PROVIDERS = [
     ("Andaman and Nicobar Islands", "Port Blair", "Island Tide Event Services", "Island celebrations with local event support", "Event Planner", 39000, 6),
     ("Chandigarh", "Chandigarh", "City Beautiful Makeup Studio", "Bridal and occasion makeup services", "Makeup", 12000, 8),
 ]
+
+
+def demo_price_unit(provider_type: str) -> str:
+    if provider_type == "Catering":
+        return "plate"
+    if provider_type == "Photography":
+        return "day"
+    return "event"
+
+
+def ensure_demo_offering(session, provider: Provider, starting_price: float) -> None:
+    title = f"{provider.provider_type} sample service - {provider.city}"
+    if session.query(ProviderOffering.id).filter_by(
+        provider_id=provider.id,
+        title=title,
+    ).first():
+        return
+    session.add(
+        ProviderOffering(
+            provider_id=provider.id,
+            title=title,
+            category=provider.provider_type[:60],
+            description=(
+                f"Synthetic example for {provider.city}, {provider.state}. "
+                "Not a verified market rate; confirm scope and final price with "
+                "the provider."
+            ),
+            inclusions="Example scope only; confirm inclusions and availability.",
+            price=starting_price,
+            price_unit=demo_price_unit(provider.provider_type),
+            minimum_quantity=50 if provider.provider_type == "Catering" else None,
+            event_types='["Wedding","Birthday","Engagement","Anniversary","Family celebration"]',
+            all_events=False,
+        )
+    )
 
 
 def seed_demo_providers() -> tuple[int, int]:
@@ -68,6 +103,15 @@ def seed_demo_providers() -> tuple[int, int]:
                     .first()
                 )
                 if existing_provider:
+                    existing_provider.starting_price = starting_price
+                    existing_provider.price_unit = demo_price_unit(provider_type)
+                    if "not a verified market rate" not in existing_provider.description.lower():
+                        existing_provider.description = (
+                            existing_provider.description.rstrip()
+                            + " Synthetic demo listing; sample starting prices are "
+                            "not verified market rates."
+                        )
+                    ensure_demo_offering(session, existing_provider, starting_price)
                     skipped += 1
                     continue
                 raise RuntimeError(
@@ -96,20 +140,23 @@ def seed_demo_providers() -> tuple[int, int]:
                     city=city,
                     state=state,
                     description=(
-                        "Synthetic demo listing for local EventHub testing. "
-                        "Not a real business; contact details and social profiles "
-                        "are intentionally not provided."
+                        "Synthetic demo listing and sample prices for local EventHub "
+                        "testing; not a real business or verified market rates. "
+                        "Contact details and social profiles are intentionally not provided."
                     ),
                     service_radius=50,
                     years_experience=years_experience,
                     starting_price=starting_price,
-                    price_unit="event",
+                    price_unit=demo_price_unit(provider_type),
                     rating=0,
                     review_count=0,
                     verified=False,
                     verification_status="PENDING",
                 )
             )
+            session.flush()
+            provider = session.query(Provider).filter_by(user_id=user.id).first()
+            ensure_demo_offering(session, provider, starting_price)
             created += 1
         session.commit()
     return created, skipped
