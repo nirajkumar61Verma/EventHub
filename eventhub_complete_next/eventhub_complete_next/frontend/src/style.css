@@ -520,6 +520,10 @@ button.primary:hover,.primary:hover{background:var(--event-berry-dark);transform
 .provider-event-type-picker legend span,.provider-custom-event-type span{color:var(--event-berry)}
 .provider-event-type-picker>p{margin:0;color:var(--event-muted);font-size:11px;line-height:1.5}
 .provider-event-type-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 14px}
+.provider-event-category-group{padding:9px 10px;border:1px solid #eee4dc;border-radius:9px;background:#fffdf9}
+.provider-event-category-group summary{color:var(--event-ink);font-size:12px;font-weight:700;cursor:pointer}
+.provider-event-category-group summary span{color:var(--event-muted);font-size:11px;font-weight:500}
+.provider-event-category-group .provider-event-type-grid{margin-top:10px}
 .provider-event-type-option{display:flex;align-items:center;gap:7px;color:var(--event-ink);font-size:12px;font-weight:550;cursor:pointer}
 .provider-event-type-option input{width:16px;height:16px;accent-color:var(--event-berry)}
 .provider-event-type-option input:disabled{cursor:not-allowed}

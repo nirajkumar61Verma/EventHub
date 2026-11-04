@@ -3,20 +3,30 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
+  FormControl,
+  FormHelperText,
+  InputLabel,
+  ListItemText,
   MenuItem,
   Paper,
+  Select,
   Stack,
   TextField,
   Typography,
+  type SelectChangeEvent,
 } from "@mui/material";
 import { ContentCopy, WhatsApp } from "@mui/icons-material";
 import { indiaLocations, indianStates } from "../indiaLocations";
+import { comfortableLanguages } from "../contactPreferences";
 
 export type ProfileValues = {
   full_name: string;
   email: string;
   phone: string;
   alternate_contact_phone: string;
+  preferred_contact_method: string;
+  preferred_languages: string[];
   address_line1: string;
   address_line2: string;
   locality: string;
@@ -38,6 +48,8 @@ const emptyProfile: ProfileValues = {
   email: "",
   phone: "",
   alternate_contact_phone: "",
+  preferred_contact_method: "",
+  preferred_languages: [],
   address_line1: "",
   address_line2: "",
   locality: "",
@@ -73,6 +85,8 @@ export default function ProfilePage({ onLoad, onSave }: ProfilePageProps) {
           email: data.email || "",
           phone: data.phone || "",
           alternate_contact_phone: data.alternate_contact_phone || "",
+          preferred_contact_method: data.preferred_contact_method || "",
+          preferred_languages: data.preferred_languages || [],
           address_line1: data.address_line1 || "",
           address_line2: data.address_line2 || "",
           locality: data.locality || "",
@@ -110,6 +124,8 @@ export default function ProfilePage({ onLoad, onSave }: ProfilePageProps) {
         email: values.email,
         phone: values.phone,
         alternate_contact_phone: values.alternate_contact_phone,
+        preferred_contact_method: values.preferred_contact_method,
+        preferred_languages: values.preferred_languages,
         address_line1: values.address_line1,
         address_line2: values.address_line2,
         locality: values.locality,
@@ -233,7 +249,7 @@ export default function ProfilePage({ onLoad, onSave }: ProfilePageProps) {
           <Typography variant="h6" sx={{ fontWeight: 700 }}>Contact details</Typography>
           <TextField label="Full name" autoComplete="name" required fullWidth value={values.full_name} onChange={(event) => update("full_name", event.target.value)} sx={fieldSx} />
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}>
-            <TextField label="Email address" type="email" autoComplete="email" required fullWidth value={values.email} onChange={(event) => update("email", event.target.value)} sx={fieldSx} />
+            <TextField label="Email address (optional)" type="email" autoComplete="email" fullWidth value={values.email} onChange={(event) => update("email", event.target.value)} helperText="Optional. You can sign in with your mobile number instead." sx={fieldSx} />
             <TextField label="Primary mobile number (used to sign in)" type="tel" autoComplete="tel" required fullWidth value={values.phone} onChange={(event) => update("phone", event.target.value)} slotProps={{ htmlInput: { minLength: 7, maxLength: 30 } }} sx={fieldSx} />
           </Box>
           <TextField
@@ -247,6 +263,45 @@ export default function ProfilePage({ onLoad, onSave }: ProfilePageProps) {
             slotProps={{ htmlInput: { maxLength: 30 } }}
             sx={fieldSx}
           />
+
+          <Typography variant="h6" sx={{ fontWeight: 700, pt: 1 }}>Contact preferences (optional)</Typography>
+          <Typography variant="body2" color="text.secondary">
+            These preferences are not shown on your public profile. They are shared with providers only when you send them an event request.
+          </Typography>
+          <TextField
+            select
+            label="Preferred way to contact you"
+            fullWidth
+            value={values.preferred_contact_method}
+            onChange={(event) => update("preferred_contact_method", event.target.value)}
+            sx={fieldSx}
+          >
+            <MenuItem value="">No preference</MenuItem>
+            <MenuItem value="Call">Phone call</MenuItem>
+            <MenuItem value="WhatsApp">WhatsApp</MenuItem>
+          </TextField>
+          <FormControl fullWidth sx={fieldSx}>
+            <InputLabel id="profile-languages-label">Languages you are comfortable with</InputLabel>
+            <Select
+              labelId="profile-languages-label"
+              multiple
+              value={values.preferred_languages}
+              label="Languages you are comfortable with"
+              onChange={(event: SelectChangeEvent<string[]>) => {
+                const selected = event.target.value;
+                update("preferred_languages", typeof selected === "string" ? selected.split(",") : selected);
+              }}
+              renderValue={(selected) => selected.join(", ")}
+            >
+              {comfortableLanguages.map((language) => (
+                <MenuItem key={language} value={language}>
+                  <Checkbox checked={values.preferred_languages.includes(language)} />
+                  <ListItemText primary={language} />
+                </MenuItem>
+              ))}
+            </Select>
+            <FormHelperText>Select every language you are comfortable using.</FormHelperText>
+          </FormControl>
 
           <Typography variant="h6" sx={{ fontWeight: 700, pt: 1 }}>Full address</Typography>
           <TextField label="Address line 1" autoComplete="address-line1" required fullWidth value={values.address_line1} onChange={(event) => update("address_line1", event.target.value)} sx={fieldSx} />

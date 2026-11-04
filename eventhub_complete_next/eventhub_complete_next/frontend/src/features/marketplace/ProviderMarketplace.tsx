@@ -1,17 +1,27 @@
 import { useEffect, useState, type MouseEvent } from "react";
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Typography,
+} from "@mui/material";
 import { api } from "../../api/client";
 import { indiaLocations, indianStates } from "../../indiaLocations";
 
 type ProviderMarketplaceProps = {
   user: any;
   onOpen: (id: number) => void;
-  onLogin: () => void;
+  onLogin: (providerId: number) => void;
+  onSignup: (providerId: number) => void;
 };
 
 export default function ProviderMarketplace({
   user,
   onOpen,
   onLogin,
+  onSignup,
 }: ProviderMarketplaceProps) {
   const [rows, setRows] = useState<any[]>([]);
   const [shortlisted, setShortlisted] = useState<number[]>([]);
@@ -22,6 +32,17 @@ export default function ProviderMarketplace({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [shortlistError, setShortlistError] = useState("");
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
+  const [requestedProviderId, setRequestedProviderId] = useState(0);
+
+  function viewProvider(providerId: number) {
+    if (!user) {
+      setRequestedProviderId(providerId);
+      setLoginPromptOpen(true);
+      return;
+    }
+    onOpen(providerId);
+  }
 
   useEffect(() => {
     api("/providers")
@@ -237,7 +258,16 @@ export default function ProviderMarketplace({
               <article
                 className="card provider-card"
                 key={provider.id}
-                onClick={() => onOpen(provider.id)}
+                onClick={() => viewProvider(provider.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    viewProvider(provider.id);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`View ${provider.business_name} profile`}
               >
                 <div className="provider-card-topline">
                   <div className="avatar provider-card-avatar">
@@ -316,6 +346,41 @@ export default function ProviderMarketplace({
           })}
         </div>
       )}
+      <Dialog
+        open={loginPromptOpen}
+        onClose={() => setLoginPromptOpen(false)}
+        aria-labelledby="provider-login-prompt-title"
+      >
+        <DialogTitle id="provider-login-prompt-title">
+          Sign in to view provider details
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            You can browse providers here. Sign in or create an account to see a
+            provider’s full profile, offerings, reviews, and contact options.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setLoginPromptOpen(false)}>Keep browsing</Button>
+          <Button
+            onClick={() => {
+              setLoginPromptOpen(false);
+              onSignup(requestedProviderId);
+            }}
+          >
+            Sign up
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setLoginPromptOpen(false);
+              onLogin(requestedProviderId);
+            }}
+          >
+            Log in
+          </Button>
+        </DialogActions>
+      </Dialog>
     </main>
   );
 }

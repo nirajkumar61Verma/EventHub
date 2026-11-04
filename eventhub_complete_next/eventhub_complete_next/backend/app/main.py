@@ -33,9 +33,11 @@ class User(Base):
     __tablename__="users"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     phone: Mapped[str] = mapped_column(String(30), default="")
     alternate_contact_phone: Mapped[str | None] = mapped_column(String(30), default="", nullable=True)
+    preferred_contact_method: Mapped[str] = mapped_column(String(20), default="")
+    preferred_languages: Mapped[str] = mapped_column(Text, default="[]")
     city: Mapped[str] = mapped_column(String(100), default="")
     state: Mapped[str] = mapped_column(String(100), default="")
     address_line1: Mapped[str] = mapped_column(String(240), default="")
@@ -124,6 +126,15 @@ class ProviderMessage(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class SupportMessage(Base):
+    __tablename__="support_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    provider_id: Mapped[int | None] = mapped_column(ForeignKey("providers.id"), nullable=True, index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -246,11 +257,33 @@ def normalize_login_phone(value:str)->str:
         return digits[1:]
     return digits
 
+def validate_login_phone(value:str)->str:
+    phone=value.strip()
+    if not 7<=len(normalize_login_phone(phone))<=15:
+        raise ValueError("Enter a valid mobile number with 7 to 15 digits")
+    return phone
+
+SUPPORTED_CONTACT_METHODS={"","Call","WhatsApp"}
+SUPPORTED_LANGUAGES={"Assamese","Bengali","English","Gujarati","Hindi","Kannada","Kashmiri","Konkani","Malayalam","Marathi","Nepali","Odia","Punjabi","Sanskrit","Tamil","Telugu","Urdu"}
+
+def validate_contact_method(value:str)->str:
+    if value not in SUPPORTED_CONTACT_METHODS:
+        raise ValueError("Choose Call, WhatsApp, or no preference")
+    return value
+
+def validate_preferred_languages(value:list[str])->list[str]:
+    cleaned=list(dict.fromkeys(language.strip() for language in value if language.strip()))
+    if any(language not in SUPPORTED_LANGUAGES for language in cleaned):
+        raise ValueError("Choose from the supported language list")
+    return cleaned
+
 class Signup(BaseModel):
     name:str=Field(validation_alias=AliasChoices("full_name","name"))
-    email:EmailStr
+    email:EmailStr|None=None
     phone:str=Field(min_length=7,max_length=30)
     alternate_contact_phone:str=Field(default="",max_length=30)
+    preferred_contact_method:str=Field(default="Call",max_length=20)
+    preferred_languages:list[str]=Field(default_factory=list,max_length=10)
     password:str=Field(min_length=6)
     role:str="CUSTOMER"
     referral_source:str=Field(default="",max_length=80)
@@ -269,17 +302,60 @@ class Signup(BaseModel):
     state:str=""
     service_radius:int=Field(default=25,ge=1)
     years_experience:int=Field(default=1,ge=0)
+
+    @field_validator("preferred_contact_method")
+    @classmethod
+    def validate_preferred_contact_method(cls,value):
+        return validate_contact_method(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_for_login(cls,value):
+        return validate_login_phone(value)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_optional_email(cls,value):
+        return value.strip() or None if isinstance(value,str) else value
+
+    @field_validator("preferred_languages")
+    @classmethod
+    def validate_preferred_languages(cls,value):
+        return validate_preferred_languages(value)
+
 class ProfileUpdate(BaseModel):
     full_name:str=Field(min_length=1,max_length=120)
-    email:EmailStr
+    email:EmailStr|None=None
     phone:str=Field(min_length=7,max_length=30)
     alternate_contact_phone:str=Field(default="",max_length=30)
+    preferred_contact_method:str=Field(default="",max_length=20)
+    preferred_languages:list[str]=Field(default_factory=list,max_length=10)
     address_line1:str=Field(min_length=1,max_length=240)
     address_line2:str=Field(default="",max_length=240)
     locality:str=Field(min_length=1,max_length=120)
     city:str=Field(min_length=1,max_length=100)
     state:str=Field(min_length=1,max_length=100)
     postal_code:str=Field(pattern=r"^[1-9][0-9]{5}$")
+
+    @field_validator("preferred_contact_method")
+    @classmethod
+    def validate_preferred_contact_method(cls,value):
+        return validate_contact_method(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_for_login(cls,value):
+        return validate_login_phone(value)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_optional_email(cls,value):
+        return value.strip() or None if isinstance(value,str) else value
+
+    @field_validator("preferred_languages")
+    @classmethod
+    def validate_preferred_languages(cls,value):
+        return validate_preferred_languages(value)
 class Login(BaseModel):
     identifier:str=Field(
         min_length=3,
@@ -341,7 +417,7 @@ class ProviderOfferingIn(BaseModel):
     price:float=Field(gt=0,allow_inf_nan=False)
     price_unit:str=Field(pattern=r"^(plate|person|hour|day|event|package)$")
     minimum_quantity:int|None=Field(default=None,ge=1,le=100000)
-    event_types:list[str]=Field(default_factory=list,max_length=20)
+    event_types:list[str]=Field(default_factory=list,max_length=30)
     all_events:bool=False
 
     @field_validator("title","category","price_unit",mode="before")
@@ -372,6 +448,18 @@ class ProviderMessageIn(BaseModel):
             raise ValueError("Message cannot be blank")
         return message
 
+class SupportMessageIn(BaseModel):
+    message:str=Field(min_length=1,max_length=2000)
+    provider_id:int|None=None
+
+    @field_validator("message")
+    @classmethod
+    def support_message_must_not_be_blank(cls,value):
+        message=value.strip()
+        if not message:
+            raise ValueError("Message cannot be blank")
+        return message
+
 class CategoryIn(BaseModel): name:str; description:str=""
 class ServiceIn(BaseModel): category_id:int; name:str
 class QuoteIn(BaseModel):
@@ -396,7 +484,10 @@ def startup():
         connection.execute(text("ALTER TABLE provider_offerings ADD COLUMN IF NOT EXISTS event_types TEXT NOT NULL DEFAULT '[]'"))
         connection.execute(text("ALTER TABLE provider_offerings ADD COLUMN IF NOT EXISTS all_events BOOLEAN NOT NULL DEFAULT FALSE"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30) NOT NULL DEFAULT ''"))
+        connection.execute(text("ALTER TABLE users ALTER COLUMN email DROP NOT NULL"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS alternate_contact_phone VARCHAR(30)"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_contact_method VARCHAR(20) NOT NULL DEFAULT ''"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_languages TEXT NOT NULL DEFAULT '[]'"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS city VARCHAR(100) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS state VARCHAR(100) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS address_line1 VARCHAR(240) NOT NULL DEFAULT ''"))
@@ -465,8 +556,14 @@ def ensure_referral_code(u:User,s:Session)->str:
 
 @app.post("/api/v1/auth/signup")
 def signup(x:Signup,s:Session=Depends(db)):
-    email=str(x.email).lower()
-    if s.query(User).filter(func.lower(User.email)==email).first(): raise HTTPException(409,"Email already registered")
+    email=str(x.email).lower() if x.email else None
+    if email and s.query(User).filter(func.lower(User.email)==email).first():
+        raise HTTPException(409,"Email already registered")
+    phone=x.phone.strip()
+    phone_digits=normalize_login_phone(phone)
+    existing_phones=s.query(User.phone).filter(User.phone!="").all()
+    if any(normalize_login_phone(existing_phone[0])==phone_digits for existing_phone in existing_phones):
+        raise HTTPException(409,"Mobile number already registered")
     role="PROVIDER" if x.role.upper()=="PROVIDER" else "CUSTOMER"
     referral_source=x.referral_source.strip()
     allowed_referral_sources={"Service provider","Customer referral","Social media","Search engine","EventHub website","Friend or family","Other"}
@@ -487,7 +584,7 @@ def signup(x:Signup,s:Session=Depends(db)):
         provider_fields={
             "business_title":x.business_title.strip(),
             "contact_email":email,
-            "contact_phone":x.phone.strip(),
+            "contact_phone":phone,
             "alternate_contact_phone":x.alternate_contact_phone.strip() or None,
             "logo_data":validate_logo_data(x.logo_data),
             "instagram_url":validate_social_url(x.instagram_url,"Instagram"),
@@ -499,8 +596,10 @@ def signup(x:Signup,s:Session=Depends(db)):
     u=User(
         name=x.name,
         email=email,
-        phone=x.phone,
+        phone=phone,
         alternate_contact_phone=x.alternate_contact_phone.strip() or None,
+        preferred_contact_method=x.preferred_contact_method,
+        preferred_languages=json.dumps(x.preferred_languages,ensure_ascii=False),
         city=x.city,
         state=x.state,
         password_hash=pwd.hash(x.password),
@@ -525,7 +624,7 @@ def signup(x:Signup,s:Session=Depends(db)):
             years_experience=x.years_experience,
         )
         s.add(p); s.commit()
-    return {"access_token":token(u),"user":{"id":u.id,"name":u.name,"full_name":u.name,"email":u.email,"phone":u.phone,"alternate_contact_phone":u.alternate_contact_phone,"city":u.city,"state":u.state,"role":u.role,"active":u.active,"email_verified":u.email_verified,"referral_code":u.referral_code,"created_at":u.created_at.isoformat()}}
+    return {"access_token":token(u),"user":{"id":u.id,"name":u.name,"full_name":u.name,"email":u.email,"phone":u.phone,"alternate_contact_phone":u.alternate_contact_phone,"preferred_contact_method":u.preferred_contact_method,"preferred_languages":x.preferred_languages,"city":u.city,"state":u.state,"role":u.role,"active":u.active,"email_verified":u.email_verified,"referral_code":u.referral_code,"created_at":u.created_at.isoformat()}}
 
 @app.post("/api/v1/auth/login")
 def login(x:Login,s:Session=Depends(db)):
@@ -539,12 +638,12 @@ def login(x:Login,s:Session=Depends(db)):
                 if normalize_login_phone(account.phone)==phone_digits
             ]
             if len(matches)>1:
-                raise HTTPException(409,"This mobile number is linked to multiple accounts. Please sign in with your email.")
+                raise HTTPException(409,"This mobile number is linked to multiple accounts. Contact support to resolve it.")
             u=matches[0] if matches else None
     if not u or not pwd.verify(x.password,u.password_hash): raise HTTPException(401,"Invalid email/mobile number or password")
     if not u.active: raise HTTPException(403,"Account is disabled")
     referral_code=ensure_referral_code(u,s)
-    return {"access_token":token(u),"user":{"id":u.id,"name":u.name,"full_name":u.name,"email":u.email,"phone":u.phone,"alternate_contact_phone":u.alternate_contact_phone,"city":u.city,"state":u.state,"role":u.role,"active":u.active,"email_verified":u.email_verified,"referral_code":referral_code,"created_at":u.created_at.isoformat()}}
+    return {"access_token":token(u),"user":{"id":u.id,"name":u.name,"full_name":u.name,"email":u.email,"phone":u.phone,"alternate_contact_phone":u.alternate_contact_phone,"preferred_contact_method":u.preferred_contact_method,"preferred_languages":json.loads(u.preferred_languages or "[]"),"city":u.city,"state":u.state,"role":u.role,"active":u.active,"email_verified":u.email_verified,"referral_code":referral_code,"created_at":u.created_at.isoformat()}}
 
 def user_profile_json(u:User):
     return {
@@ -553,6 +652,8 @@ def user_profile_json(u:User):
         "email":u.email,
         "phone":u.phone,
         "alternate_contact_phone":u.alternate_contact_phone or "",
+        "preferred_contact_method":u.preferred_contact_method or "",
+        "preferred_languages":json.loads(u.preferred_languages or "[]"),
         "city":u.city,
         "state":u.state,
         "address_line1":u.address_line1,
@@ -573,16 +674,23 @@ def get_profile(u=Depends(current_user),s:Session=Depends(db)):
 
 @app.put("/api/v1/profile")
 def update_profile(x:ProfileUpdate,u=Depends(current_user),s:Session=Depends(db)):
-    email=str(x.email).lower()
-    duplicate=s.query(User).filter(func.lower(User.email)==email,User.id!=u.id).first()
+    email=str(x.email).lower() if x.email else None
+    duplicate=s.query(User).filter(func.lower(User.email)==email,User.id!=u.id).first() if email else None
     if duplicate:
         raise HTTPException(409,"Email already registered")
-    if email!=u.email.lower():
+    if email!=(u.email or "").lower():
         u.email_verified=False
     u.name=x.full_name.strip()
     u.email=email
-    u.phone=x.phone.strip()
+    phone=x.phone.strip()
+    phone_digits=normalize_login_phone(phone)
+    existing_phones=s.query(User.phone).filter(User.id!=u.id,User.phone!="").all()
+    if any(normalize_login_phone(existing_phone[0])==phone_digits for existing_phone in existing_phones):
+        raise HTTPException(409,"Mobile number already registered")
+    u.phone=phone
     u.alternate_contact_phone=x.alternate_contact_phone.strip() or None
+    u.preferred_contact_method=x.preferred_contact_method
+    u.preferred_languages=json.dumps(x.preferred_languages,ensure_ascii=False)
     u.address_line1=x.address_line1.strip()
     u.address_line2=x.address_line2.strip()
     u.locality=x.locality.strip()
@@ -1022,6 +1130,48 @@ def send_provider_message(pid:int,x:ProviderMessageIn,u=Depends(current_user),s:
     s.refresh(message)
     return {"id":message.id,"message":"Your message was sent to the provider."}
 
+def support_message_json(message:SupportMessage,s:Session):
+    sender=s.get(User,message.sender_id)
+    return {
+        "id":message.id,
+        "customer_id":message.customer_id,
+        "provider_id":message.provider_id,
+        "sender_id":message.sender_id,
+        "sender_name":sender.name if sender else "Unavailable account",
+        "sender_role":sender.role if sender else "UNKNOWN",
+        "message":message.message,
+        "created_at":message.created_at.isoformat(),
+    }
+
+@app.get("/api/v1/support/messages")
+def customer_support_messages(provider_id:int|None=None,u=Depends(current_user),s:Session=Depends(db)):
+    require_customer(u)
+    if provider_id is not None and not s.get(Provider,provider_id):
+        raise HTTPException(404,"Provider not found")
+    query=s.query(SupportMessage).filter(SupportMessage.customer_id==u.id)
+    if provider_id is None:
+        query=query.filter(SupportMessage.provider_id.is_(None))
+    else:
+        query=query.filter(SupportMessage.provider_id==provider_id)
+    rows=query.order_by(SupportMessage.created_at.asc(),SupportMessage.id.asc()).all()
+    return [support_message_json(message,s) for message in rows]
+
+@app.post("/api/v1/support/messages")
+def send_customer_support_message(x:SupportMessageIn,u=Depends(current_user),s:Session=Depends(db)):
+    require_customer(u)
+    if x.provider_id is not None and not s.get(Provider,x.provider_id):
+        raise HTTPException(404,"Provider not found")
+    message=SupportMessage(
+        customer_id=u.id,
+        provider_id=x.provider_id,
+        sender_id=u.id,
+        message=x.message,
+    )
+    s.add(message)
+    s.commit()
+    s.refresh(message)
+    return support_message_json(message,s)
+
 @app.get("/api/v1/provider/messages")
 def provider_messages(u=Depends(current_user),s:Session=Depends(db)):
     if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
@@ -1081,10 +1231,17 @@ def create_customer_event(x:EventRequestIn,u=Depends(current_user),s:Session=Dep
     requested_services=list(dict.fromkeys(service.strip() for service in x.services if service.strip()))
     for service_name in requested_services:
         s.add(Requirement(event_id=event.id,service_name=service_name,details=x.details.strip()))
+    contact_preferences=[]
+    if u.preferred_contact_method:
+        contact_preferences.append(f"Preferred contact method: {u.preferred_contact_method}")
+    preferred_languages=json.loads(u.preferred_languages or "[]")
+    if preferred_languages:
+        contact_preferences.append(f"Comfortable languages: {', '.join(preferred_languages)}")
     request_details="\n".join(
         part for part in (
             f"Venue / location details: {x.venue.strip()}" if x.venue.strip() else "",
             f"Additional event details: {x.details.strip()}" if x.details.strip() else "",
+            "Customer contact preferences (shared for this request):\n" + "\n".join(contact_preferences) if contact_preferences else "",
         ) if part
     )
     requests=[]
@@ -1185,6 +1342,47 @@ def set_availability(day:date,available:bool=True,u=Depends(current_user),s:Sess
 @app.get("/api/v1/admin/providers")
 def admin_providers(u=Depends(admin),s:Session=Depends(db)):
     return [provider_json(p) for p in s.query(Provider).order_by(Provider.created_at.desc()).all()]
+
+@app.get("/api/v1/admin/support/messages")
+def admin_support_messages(u=Depends(admin),s:Session=Depends(db)):
+    rows=s.query(SupportMessage).order_by(
+        SupportMessage.created_at.asc(),SupportMessage.id.asc()
+    ).all()
+    output=[]
+    for message in rows:
+        item=support_message_json(message,s)
+        customer=s.get(User,message.customer_id)
+        provider=s.get(Provider,message.provider_id) if message.provider_id else None
+        item.update({
+            "customer_name":customer.name if customer else "Unavailable account",
+            "customer_phone":customer.phone if customer else "",
+            "provider_name":provider.business_name if provider else "General EventHub support",
+        })
+        output.append(item)
+    return output
+
+@app.post("/api/v1/admin/support/messages/{customer_id}/reply")
+def admin_reply_support_message(
+    customer_id:int,
+    x:SupportMessageIn,
+    u=Depends(admin),
+    s:Session=Depends(db),
+):
+    customer=s.get(User,customer_id)
+    if not customer or customer.role not in {"CUSTOMER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(404,"Customer account not found")
+    if x.provider_id is not None and not s.get(Provider,x.provider_id):
+        raise HTTPException(404,"Provider not found")
+    message=SupportMessage(
+        customer_id=customer.id,
+        provider_id=x.provider_id,
+        sender_id=u.id,
+        message=x.message,
+    )
+    s.add(message)
+    s.commit()
+    s.refresh(message)
+    return support_message_json(message,s)
 
 @app.get("/api/v1/admin/users")
 def admin_users(u=Depends(admin),s:Session=Depends(db)):

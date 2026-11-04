@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../../api/client";
+import {
+  eventCategories,
+  eventCategoryNames,
+  eventTypes,
+} from "../../eventCategories";
+import { otherServiceCategory, serviceCategories } from "../../serviceCategories";
 
 type Offering = {
   title: string;
@@ -13,44 +19,17 @@ type Offering = {
   all_events: boolean;
 };
 
-const applicableEventTypes = [
-  "Wedding",
-  "Birthday",
-  "Engagement",
-  "Anniversary",
-  "Baby shower",
-  "Graduation",
-  "Corporate event",
-  "Family celebration",
-];
-const suggestedServiceCategories = [
-  "Anchor / Emcee",
-  "Cakes & Desserts",
-  "Catering",
-  "Decoration",
-  "DJ and Sound",
-  "Entertainment",
-  "Event Planner",
-  "Florist",
-  "Makeup",
-  "Mehndi Art",
-  "Music & DJ",
-  "Photography",
-  "Venue",
-  "Videography",
-  "Wedding Planner",
-];
 const customEventTypeMarker = "__custom_event_type__";
 
 function customEventTypes(offering: Offering) {
   return offering.event_types.filter((eventType) =>
-    eventType !== customEventTypeMarker && !applicableEventTypes.includes(eventType),
+    eventType !== customEventTypeMarker && !eventTypes.includes(eventType),
   );
 }
 
 const emptyOffering = (): Offering => ({
   title: "",
-  category: "Service",
+  category: "",
   description: "",
   inclusions: "",
   price: "",
@@ -320,13 +299,17 @@ export default function ProviderDashboard({
                     <input id="provider-business-title" maxLength={180} value={form.business_title || ""} onChange={(event) => setForm({ ...form, business_title: event.target.value })} placeholder="e.g. Creating joyful celebrations, one detail at a time" />
                   </label>
                   <label htmlFor="provider-category">Primary service you provide <span>*</span>
-                    <input id="provider-category" list="provider-service-suggestions" required maxLength={120} value={form.category || ""} onChange={(event) => setForm({ ...form, category: event.target.value })} placeholder="e.g. Mehndi artist, DJ, event planner" />
+                    <select id="provider-category" required value={serviceCategories.includes(form.category) ? form.category : form.category ? otherServiceCategory : ""} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+                      <option value="">Select a service</option>
+                      {serviceCategories.map((service) => <option key={service} value={service}>{service}</option>)}
+                      <option value={otherServiceCategory}>{otherServiceCategory}</option>
+                    </select>
                   </label>
-                  <datalist id="provider-service-suggestions">
-                    {suggestedServiceCategories.map((service) => (
-                      <option key={service} value={service} />
-                    ))}
-                  </datalist>
+                  {!serviceCategories.includes(form.category) && (
+                    <label htmlFor="provider-custom-category">Name your other service <span>*</span>
+                      <input id="provider-custom-category" required maxLength={120} value={form.category === otherServiceCategory ? "" : form.category || ""} onChange={(event) => setForm({ ...form, category: event.target.value })} placeholder="Enter the service customers should search for" />
+                    </label>
+                  )}
                   <label htmlFor="provider-description" className="provider-profile-field-wide">About your service
                     <textarea id="provider-description" rows={4} maxLength={4000} value={form.description || ""} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Tell customers about your experience, style, and what makes your service special." />
                   </label>
@@ -438,11 +421,21 @@ export default function ProviderDashboard({
                     <label>Item or service name <span>*</span>
                       <input required maxLength={120} value={offering.title} onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, title: event.target.value } : item))} placeholder="e.g. Punjabi wedding lunch" />
                     </label>
-                    <label>Menu or service category <span>*</span>
-                      <input required maxLength={60} value={offering.category} onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, category: event.target.value } : item))} placeholder="e.g. Catering, Photography, Music" />
+                    <label>Service category <span>*</span>
+                      <select required value={serviceCategories.includes(offering.category) ? offering.category : offering.category ? otherServiceCategory : ""} onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, category: event.target.value } : item))}>
+                        <option value="">Select a service</option>
+                        {serviceCategories.map((service) => <option key={service} value={service}>{service}</option>)}
+                        <option value={otherServiceCategory}>{otherServiceCategory}</option>
+                      </select>
                     </label>
+                    {!serviceCategories.includes(offering.category) && (
+                      <label>Name the other service customers can search for <span>*</span>
+                        <input required maxLength={60} value={offering.category === otherServiceCategory ? "" : offering.category} onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, category: event.target.value } : item))} placeholder="e.g. Fireworks coordination" />
+                      </label>
+                    )}
                     <label className="provider-profile-field-wide">Description
-                      <textarea rows={3} maxLength={1000} value={offering.description} onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, description: event.target.value } : item))} placeholder="Explain what the customer receives, portions or duration, and any important limits." />
+                      <textarea required={!serviceCategories.includes(offering.category)} rows={3} maxLength={1000} value={offering.description} onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, description: event.target.value } : item))} placeholder={!serviceCategories.includes(offering.category) ? "Describe this other service clearly so customers understand what you provide." : "Explain what the customer receives, portions or duration, and any important limits."} />
+                      {!serviceCategories.includes(offering.category) && <small>For an Other service, explain what it includes and how customers can recognize the service they need.</small>}
                     </label>
                     <label className="provider-profile-field-wide">Included in this price
                       <textarea rows={2} maxLength={1000} value={offering.inclusions} onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, inclusions: event.target.value } : item))} placeholder="e.g. 2 starters, 3 main dishes, rice, breads, dessert, serving staff" />
@@ -476,24 +469,41 @@ export default function ProviderDashboard({
                         />
                         All event types
                       </label>
+                      {eventCategoryNames.map((category) => {
+                        const categoryTypes = eventCategories[category];
+                        const selectedCount = categoryTypes.filter((eventType) =>
+                          offering.event_types.includes(eventType),
+                        ).length;
+                        return (
+                          <details
+                            className="provider-event-category-group"
+                            key={category}
+                            open={selectedCount > 0 || category === "Personal & family"}
+                          >
+                            <summary>{category} <span>({selectedCount} selected)</span></summary>
+                            <div className="provider-event-type-grid">
+                              {categoryTypes.map((eventType) => (
+                                <label className="provider-event-type-option" key={eventType}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={offering.all_events}
+                                    checked={offering.event_types.includes(eventType)}
+                                    onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => {
+                                      if (currentIndex !== index) return item;
+                                      const selectedTypes = event.target.checked
+                                        ? [...new Set([...item.event_types, eventType])]
+                                        : item.event_types.filter((value) => value !== eventType);
+                                      return { ...item, event_types: selectedTypes };
+                                    }))}
+                                  />
+                                  {eventType}
+                                </label>
+                              ))}
+                            </div>
+                          </details>
+                        );
+                      })}
                       <div className="provider-event-type-grid">
-                        {applicableEventTypes.map((eventType) => (
-                          <label className="provider-event-type-option" key={eventType}>
-                            <input
-                              type="checkbox"
-                              disabled={offering.all_events}
-                              checked={offering.event_types.includes(eventType)}
-                              onChange={(event) => setOfferings((current) => current.map((item, currentIndex) => {
-                                if (currentIndex !== index) return item;
-                                const eventTypes = event.target.checked
-                                  ? [...new Set([...item.event_types, eventType])]
-                                  : item.event_types.filter((value) => value !== eventType);
-                                return { ...item, event_types: eventTypes };
-                              }))}
-                            />
-                            {eventType}
-                          </label>
-                        ))}
                         <label className="provider-event-type-option">
                           <input
                             type="checkbox"
@@ -505,7 +515,7 @@ export default function ProviderDashboard({
                                 ...item,
                                 event_types: event.target.checked
                                 ? [...item.event_types, customEventTypeMarker]
-                                  : item.event_types.filter((value) => applicableEventTypes.includes(value)),
+                                  : item.event_types.filter((value) => eventTypes.includes(value)),
                               };
                             }))}
                           />
@@ -526,7 +536,7 @@ export default function ProviderDashboard({
                               return {
                                 ...item,
                                 event_types: [
-                                  ...item.event_types.filter((value) => applicableEventTypes.includes(value)),
+                                  ...item.event_types.filter((value) => eventTypes.includes(value)),
                                   ...(otherTypes.length ? otherTypes : [customEventTypeMarker]),
                                 ],
                               };
@@ -541,7 +551,7 @@ export default function ProviderDashboard({
                 </section>
               ))}
               {offerings.length < 50 && (
-                <button className="provider-offering-add" type="button" onClick={() => setOfferings((current) => [...current, { ...emptyOffering(), category: form.category || "Service" }])}>+ Add another service or menu item</button>
+                <button className="provider-offering-add" type="button" onClick={() => setOfferings((current) => [...current, { ...emptyOffering(), category: form.category || "" }])}>+ Add another service or menu item</button>
               )}
               {message && <p role="status" className="provider-profile-save-message">{message}</p>}
               <div className="provider-profile-save-row">

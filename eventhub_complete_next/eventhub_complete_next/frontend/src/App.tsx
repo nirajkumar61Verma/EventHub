@@ -15,8 +15,10 @@ import SignupPage, { type SignupValues } from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 import HelpPage from "./pages/HelpPage";
 import AboutPage from "./pages/AboutPage";
+import ContactPage from "./pages/ContactPage";
 import HomePage from "./pages/HomePage";
 import AppFooter from "./components/AppFooter";
+import SupportChatWidget from "./components/SupportChatWidget";
 
 export default function App() {
   const [user, setUser] = useState<any>(() =>
@@ -29,6 +31,7 @@ export default function App() {
       : "home",
   );
   const [providerId, setProviderId] = useState(0);
+  const [pendingProviderId, setPendingProviderId] = useState(0);
   const [requestProviderId, setRequestProviderId] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [showLoading, setShowLoading] = useState(false);
@@ -77,7 +80,8 @@ export default function App() {
     localStorage.setItem("eh_token", data.access_token);
     localStorage.setItem("eh_user", JSON.stringify(data.user));
     setUser(data.user);
-    setPage("home");
+    setPage(pendingProviderId ? "provider-profile" : "home");
+    setPendingProviderId(0);
   }
 
   const loadProfile = useCallback(
@@ -133,6 +137,7 @@ export default function App() {
           onHelp={() => setPage("help")}
         />
       )}
+      {page === "contact" && <ContactPage />}
       {page === "providers" && (
         <ProviderMarketplace
           user={user}
@@ -140,10 +145,18 @@ export default function App() {
             setProviderId(id);
             setPage("provider-profile");
           }}
-          onLogin={() => setPage("login")}
+          onLogin={(id) => {
+            setPendingProviderId(id);
+            setPage("login");
+          }}
+          onSignup={(id) => {
+            setPendingProviderId(id);
+            setPage("signup");
+          }}
         />
       )}
       {page === "provider-profile" && (
+        user ? (
         <ProviderProfile
           id={providerId}
           user={user}
@@ -154,6 +167,24 @@ export default function App() {
             setPage("provider-profile");
           }}
         />
+        ) : (
+          <ProviderMarketplace
+            user={user}
+            onOpen={(id) => {
+              setProviderId(id);
+              setPendingProviderId(id);
+              setPage("login");
+            }}
+            onLogin={(id) => {
+              setPendingProviderId(id);
+              setPage("login");
+            }}
+            onSignup={(id) => {
+              setPendingProviderId(id);
+              setPage("signup");
+            }}
+          />
+        )
       )}
       {page === "event-request" &&
         ["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
@@ -186,7 +217,8 @@ export default function App() {
         <LoginPage
           onDone={() => {
             setUser(JSON.parse(localStorage.getItem("eh_user") || "null"));
-            setPage("home");
+            setPage(pendingProviderId ? "provider-profile" : "home");
+            setPendingProviderId(0);
           }}
           onSignup={() => setPage("signup")}
         />
@@ -213,6 +245,15 @@ export default function App() {
       )}
       {page === "admin" && user?.role === "ADMIN" && <AdminDashboard />}
       <AppFooter onPage={setPage} />
+      <SupportChatWidget
+        user={user}
+        onLogin={() => {
+          setPage("login");
+        }}
+        onSignup={() => {
+          setPage("signup");
+        }}
+      />
       <Backdrop
         className="app-loading-backdrop"
         open={showLoading}

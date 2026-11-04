@@ -3,6 +3,7 @@ import AccountCircleOutlinedIcon from "@mui/icons-material/AccountCircleOutlined
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import CallOutlinedIcon from "@mui/icons-material/CallOutlined";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
 import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import EventNoteOutlinedIcon from "@mui/icons-material/EventNoteOutlined";
@@ -310,6 +311,7 @@ export default function AppNavigation({
               <div className="drawer-section">
                 <p className="drawer-section-title">DISCOVER</p>
                 {drawerLink("Providers", "providers", <ExploreOutlinedIcon />)}
+                {drawerLink("Contact us", "contact", <CallOutlinedIcon />)}
                 <button className="drawer-link" onClick={() => navigate("help")}>
                   <span className="drawer-link-icon"><HelpOutlineIcon /></span>
                   <span className="drawer-link-label">Help</span>

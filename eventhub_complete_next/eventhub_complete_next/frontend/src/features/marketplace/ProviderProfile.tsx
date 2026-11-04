@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   EmailOutlined,
   Facebook,
+  ChatOutlined,
   Instagram,
   Language,
   LinkedIn,
@@ -9,7 +10,21 @@ import {
   YouTube,
   WhatsApp,
 } from "@mui/icons-material";
+import {
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { api } from "../../api/client";
+import { eventHubSupportPhone } from "../../contactDetails";
+import { serviceCategories } from "../../serviceCategories";
 
 type ProviderProfileProps = {
   id: number;
@@ -47,6 +62,12 @@ export default function ProviderProfile({
   const [messageSent, setMessageSent] = useState("");
   const [messageError, setMessageError] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [isSupportChatOpen, setIsSupportChatOpen] = useState(false);
+  const [supportMessages, setSupportMessages] = useState<any[]>([]);
+  const [supportDraft, setSupportDraft] = useState("");
+  const [supportError, setSupportError] = useState("");
+  const [loadingSupportMessages, setLoadingSupportMessages] = useState(false);
+  const [sendingSupportMessage, setSendingSupportMessage] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -78,6 +99,58 @@ export default function ProviderProfile({
       setError(cause.message || "Unable to load provider."),
     );
   }, [load]);
+
+  const loadSupportMessages = useCallback(async () => {
+    const messages = await api(`/support/messages?provider_id=${id}`);
+    setSupportMessages(messages);
+    setSupportError("");
+  }, [id]);
+
+  useEffect(() => {
+    if (!isSupportChatOpen) return;
+    setLoadingSupportMessages(true);
+    loadSupportMessages()
+      .catch((cause: unknown) =>
+        setSupportError(
+          cause instanceof Error
+            ? cause.message
+            : "Unable to load EventHub support chat.",
+        ),
+      )
+      .finally(() => setLoadingSupportMessages(false));
+    const interval = window.setInterval(() => {
+      loadSupportMessages().catch((cause: unknown) =>
+        setSupportError(
+          cause instanceof Error
+            ? cause.message
+            : "Unable to refresh EventHub support chat.",
+        ),
+      );
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [isSupportChatOpen, loadSupportMessages]);
+
+  async function sendSupportMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSendingSupportMessage(true);
+    setSupportError("");
+    try {
+      await api("/support/messages", {
+        method: "POST",
+        body: JSON.stringify({ message: supportDraft, provider_id: id }),
+      });
+      setSupportDraft("");
+      await loadSupportMessages();
+    } catch (cause: unknown) {
+      setSupportError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to send your message to EventHub support.",
+      );
+    } finally {
+      setSendingSupportMessage(false);
+    }
+  }
 
   async function submitReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -134,12 +207,18 @@ export default function ProviderProfile({
   }
 
   const socialLinks = [
-    { label: "Instagram", url: provider.instagram_url, icon: <Instagram /> },
-    { label: "Facebook", url: provider.facebook_url, icon: <Facebook /> },
-    { label: "YouTube", url: provider.youtube_url, icon: <YouTube /> },
-    { label: "LinkedIn", url: provider.linkedin_url, icon: <LinkedIn /> },
-    { label: "Website", url: provider.website_url, icon: <Language /> },
-  ].filter((item) => item.url);
+    { label: "Instagram", url: provider.instagram_url, sampleUrl: "https://www.instagram.com/", icon: <Instagram /> },
+    { label: "Facebook", url: provider.facebook_url, sampleUrl: "https://www.facebook.com/", icon: <Facebook /> },
+    { label: "YouTube", url: provider.youtube_url, sampleUrl: "https://www.youtube.com/", icon: <YouTube /> },
+    { label: "LinkedIn", url: provider.linkedin_url, sampleUrl: "https://www.linkedin.com/", icon: <LinkedIn /> },
+    { label: "Website", url: provider.website_url, sampleUrl: "", icon: <Language /> },
+  ]
+    .map((item) => ({
+      ...item,
+      isSample: !item.url && Boolean(item.sampleUrl),
+      destination: item.url || item.sampleUrl,
+    }))
+    .filter((item) => item.destination);
   const ratingBreakdown = [5, 4, 3, 2, 1].map((value) => ({
     value,
     count: reviews.filter(
@@ -151,6 +230,14 @@ export default function ProviderProfile({
   const contactNumbers = provider.alternate_contact_phone
     ? [{ label: "Public contact number", number: provider.alternate_contact_phone }]
     : [];
+  const providerContactEmail =
+    typeof provider.contact_email === "string" &&
+    !provider.contact_email.toLowerCase().endsWith(".local")
+      ? provider.contact_email
+      : "";
+  const hasPublicContactDetails = Boolean(
+    providerContactEmail || contactNumbers.length > 0,
+  );
   const whatsappMessage = `Hi ${provider.business_name}, I found your profile on EventHub and would like to know more about your services.`;
   const hasReferralNetwork =
     referralNetwork.chain.length > 1 ||
@@ -193,23 +280,28 @@ export default function ProviderProfile({
           {socialLinks.length > 0 && (
             <div
               className="provider-social-links"
-              aria-label="Provider social media links"
+              aria-label="Provider social media links and sample destinations"
             >
               {socialLinks.map((item) => (
                 <a
                   key={item.label}
-                  href={item.url}
+                  href={item.destination}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={item.label}
-                  title={item.label}
+                  aria-label={item.isSample ? `${item.label} sample destination; provider link not provided` : item.label}
+                  title={item.isSample ? `${item.label} sample destination; provider link not provided` : item.label}
                   onClick={(event) => event.stopPropagation()}
                 >
                   {item.icon}
-                  <span>{item.label}</span>
+                  <span>{item.isSample ? `${item.label} (sample)` : item.label}</span>
                 </a>
               ))}
             </div>
+          )}
+          {socialLinks.some((item) => item.isSample) && (
+            <p className="provider-social-sample-note">
+              Sample links open the social platforms; the provider has not supplied account URLs.
+            </p>
           )}
         </div>
       </div>
@@ -226,7 +318,11 @@ export default function ProviderProfile({
             {offerings.map((offer) => (
               <article className="card provider-offering-card" key={offer.id}>
                 <div className="provider-offering-heading">
-                  <span>{offer.category}</span>
+                  <span>
+                    {serviceCategories.some((category) => category === offer.category)
+                      ? offer.category
+                      : `Other service: ${offer.category}`}
+                  </span>
                   {offer.minimum_quantity && <small>Minimum {Number(offer.minimum_quantity).toLocaleString("en-IN")} {offer.price_unit === "person" ? "people" : `${offer.price_unit}s`}</small>}
                 </div>
                 <h3>{offer.title}</h3>
@@ -257,8 +353,8 @@ export default function ProviderProfile({
           <p className="provider-offerings-disclaimer">Prices are indicative. Confirm availability, final quantities, travel or setup charges, and the final quote directly with the provider.</p>
         </section>
       )}
-      {(provider.contact_email || contactNumbers.length > 0) && (
-        <section className="card provider-contact-card" aria-label="Contact provider directly">
+      {hasPublicContactDetails && (
+      <section className="card provider-contact-card" aria-label="Contact provider directly">
           <div className="provider-contact-heading">
             <p className="provider-profile-eyebrow">LET'S TALK DETAILS</p>
             <h2>Contact this provider directly</h2>
@@ -294,15 +390,130 @@ export default function ProviderProfile({
                 </div>
               );
             })}
-            {provider.contact_email && (
-              <a href={`mailto:${provider.contact_email}`}>
+            {providerContactEmail && (
+              <a href={`mailto:${providerContactEmail}`}>
                 <EmailOutlined aria-hidden="true" />
-                <span><small>Email</small><strong>{provider.contact_email}</strong></span>
+                <span><small>Email</small><strong>{providerContactEmail}</strong></span>
               </a>
             )}
           </div>
-        </section>
+      </section>
       )}
+      <section className="card provider-contact-card" aria-label="EventHub support">
+        <div className="provider-contact-heading">
+          <p className="provider-profile-eyebrow">NEED A HAND?</p>
+          <h2>Contact EventHub support</h2>
+          <p>
+            {hasPublicContactDetails
+              ? "Need help with this listing? Contact our support team."
+              : "This provider has not shared public contact details. Our support team can help you."}
+          </p>
+        </div>
+        <div className="provider-contact-links">
+          <a href={`tel:${eventHubSupportPhone}`}>
+            <PhoneOutlined aria-hidden="true" />
+            <span>
+              <small>Call EventHub support</small>
+              <strong>{eventHubSupportPhone}</strong>
+            </span>
+          </a>
+          <a
+            className="provider-whatsapp-link"
+            href={`https://wa.me/91${eventHubSupportPhone}?text=${encodeURIComponent(`Hi EventHub support, I need help with ${provider.business_name}.`)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <WhatsApp aria-hidden="true" />
+            <span>
+              <small>Chat with us on</small>
+              <strong>WhatsApp support</strong>
+            </span>
+          </a>
+          {["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
+            <Button
+              variant="outlined"
+              startIcon={<ChatOutlined />}
+              onClick={() => setIsSupportChatOpen(true)}
+              sx={{ alignSelf: "flex-start", textTransform: "none" }}
+            >
+              Chat in EventHub
+            </Button>
+          )}
+        </div>
+        <p className="provider-contact-privacy">
+          These are shared EventHub support contacts, not the provider’s direct details.
+          WhatsApp chat requires this number to be WhatsApp-enabled.
+        </p>
+      </section>
+      <Dialog
+        open={isSupportChatOpen}
+        onClose={() => setIsSupportChatOpen(false)}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="eventhub-support-chat-title"
+      >
+        <DialogTitle id="eventhub-support-chat-title">
+          Chat with EventHub support
+          <Typography component="span" display="block" variant="body2" color="text.secondary">
+            About {provider.business_name}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5} sx={{ minHeight: 180, maxHeight: 360, overflowY: "auto", py: 1 }}>
+            {loadingSupportMessages && supportMessages.length === 0 && (
+              <Typography color="text.secondary">Loading conversation…</Typography>
+            )}
+            {!loadingSupportMessages && supportMessages.length === 0 && (
+              <Typography color="text.secondary">
+                Start a chat with EventHub support about this provider. Our team
+                will see your message in the support inbox.
+              </Typography>
+            )}
+            {supportMessages.map((entry) => (
+              <Box
+                key={entry.id}
+                sx={{
+                  alignSelf: entry.sender_role === "ADMIN" ? "flex-start" : "flex-end",
+                  maxWidth: "90%",
+                  p: 1.5,
+                  borderRadius: 2,
+                  bgcolor: entry.sender_role === "ADMIN" ? "#f5f1eb" : "#fcecf1",
+                }}
+              >
+                <Typography variant="caption" color="text.secondary">
+                  {entry.sender_role === "ADMIN" ? "EventHub support" : "You"}
+                </Typography>
+                <Typography sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  {entry.message}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {new Date(entry.created_at).toLocaleString()}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+          {supportError && <Alert severity="error" sx={{ mt: 1 }}>{supportError}</Alert>}
+          <Box component="form" onSubmit={sendSupportMessage} sx={{ display: "flex", gap: 1, mt: 2 }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Your message"
+              value={supportDraft}
+              onChange={(event) => setSupportDraft(event.target.value)}
+              inputProps={{ maxLength: 2000 }}
+              required
+              multiline
+              maxRows={4}
+            />
+            <Button type="submit" variant="contained" disabled={sendingSupportMessage}>
+              {sendingSupportMessage ? "Sending…" : "Send"}
+            </Button>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setIsSupportChatOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
       {(hasReferralNetwork || referralError) && (
         <section className="provider-referral-network card" aria-labelledby="provider-referral-title">
           <div className="provider-referral-heading">

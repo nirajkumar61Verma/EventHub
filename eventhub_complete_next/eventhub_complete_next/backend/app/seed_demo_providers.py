@@ -1,5 +1,7 @@
 """Seed additional synthetic provider profiles for local marketplace testing."""
 
+import json
+import re
 import secrets
 
 from sqlalchemy import func
@@ -43,19 +45,155 @@ DEMO_PROVIDERS = [
 
 
 def demo_price_unit(provider_type: str) -> str:
-    if provider_type == "Catering":
-        return "plate"
-    if provider_type == "Photography":
-        return "day"
-    return "event"
+    return {
+        "Catering": "plate",
+        "Cakes & Desserts": "kg",
+        "Guest Accommodation": "room/night",
+        "Guest Transport": "vehicle",
+        "Gifts & Mementos": "item",
+        "Makeup": "person",
+        "Mehndi Art": "person",
+        "Photography": "day",
+        "Power Backup": "day",
+        "Puja Samagri": "kit",
+        "Return Gifts & Favors": "person",
+        "Venue": "day",
+        "Videography": "day",
+    }.get(provider_type, "event")
+
+
+DEMO_EVENT_TYPES = [
+    "Wedding",
+    "Birthday",
+    "Engagement",
+    "Anniversary",
+    "Baby shower",
+    "Graduation",
+    "Corporate event",
+    "Office Diwali celebration",
+    "Family celebration",
+    "Housewarming / Griha Pravesh",
+    "Puja / religious ceremony",
+    "Festival celebration",
+    "Diwali celebration",
+    "Holi celebration",
+    "Navratri / Durga Puja celebration",
+    "Eid celebration",
+    "Christmas celebration",
+    "Naming ceremony / Annaprashan",
+    "Mundan / first haircut",
+    "Thread ceremony / Upanayan",
+    "Retirement",
+    "Farewell",
+    "Community event",
+    "Political rally",
+    "Campaign meeting",
+    "Town hall / public outreach",
+    "Other",
+]
+
+JHARKHAND_CITIES = [
+    "Bokaro",
+    "Deoghar",
+    "Dhanbad",
+    "Dumka",
+    "Hazaribagh",
+    "Jamshedpur",
+    "Ranchi",
+]
+
+DEMO_SERVICE_TYPES = [
+    "Anchor / Emcee",
+    "AV & Presentation",
+    "Bridal Wear & Styling",
+    "Cakes & Desserts",
+    "Catering",
+    "Decoration",
+    "DJ and Sound",
+    "Dhol / Baraat Band",
+    "Entertainment",
+    "Event Planner",
+    "Florist",
+    "Gifts & Mementos",
+    "Guest Accommodation",
+    "Guest Seating & Rentals",
+    "Guest Transport",
+    "Havan Setup",
+    "Invitation Design & Printing",
+    "Makeup",
+    "Mehndi Art",
+    "Music & DJ",
+    "Other",
+    "Pandal & Tent",
+    "Pandit / Priest",
+    "Photography",
+    "Power Backup",
+    "Puja Samagri",
+    "Rangoli & Traditional Art",
+    "Return Gifts & Favors",
+    "Security",
+    "Sound & Lighting",
+    "Stage & Seating",
+    "Venue",
+    "Videography",
+    "Wedding Planner",
+]
+
+DEMO_SERVICE_PRICES = {
+    "Anchor / Emcee": 8000,
+    "AV & Presentation": 12000,
+    "Bridal Wear & Styling": 18000,
+    "Cakes & Desserts": 800,
+    "Catering": 550,
+    "Decoration": 18000,
+    "DJ and Sound": 12000,
+    "Dhol / Baraat Band": 10000,
+    "Entertainment": 15000,
+    "Event Planner": 22000,
+    "Florist": 8000,
+    "Gifts & Mementos": 300,
+    "Guest Accommodation": 2500,
+    "Guest Seating & Rentals": 8000,
+    "Guest Transport": 5000,
+    "Havan Setup": 5000,
+    "Invitation Design & Printing": 1500,
+    "Makeup": 7500,
+    "Mehndi Art": 4000,
+    "Music & DJ": 14000,
+    "Other": 5000,
+    "Pandal & Tent": 25000,
+    "Pandit / Priest": 5100,
+    "Photography": 18000,
+    "Power Backup": 7000,
+    "Puja Samagri": 1500,
+    "Rangoli & Traditional Art": 3000,
+    "Return Gifts & Favors": 250,
+    "Security": 8000,
+    "Sound & Lighting": 16000,
+    "Stage & Seating": 18000,
+    "Venue": 30000,
+    "Videography": 22000,
+    "Wedding Planner": 30000,
+}
 
 
 def ensure_demo_offering(session, provider: Provider, starting_price: float) -> None:
-    title = f"{provider.provider_type} sample service - {provider.city}"
-    if session.query(ProviderOffering.id).filter_by(
+    title = (
+        f"Other service: local event support - {provider.city}"
+        if provider.provider_type == "Other"
+        else f"{provider.provider_type} sample service - {provider.city}"
+    )
+    existing = session.query(ProviderOffering).filter_by(
         provider_id=provider.id,
         title=title,
-    ).first():
+    ).first()
+    if existing:
+        existing.event_types = json.dumps(DEMO_EVENT_TYPES, ensure_ascii=False)
+        existing.description = (
+            f"Synthetic example for {provider.city}, {provider.state}. "
+            "Not a verified market rate; confirm scope and final price with "
+            "the provider."
+        )
         return
     session.add(
         ProviderOffering(
@@ -71,7 +209,7 @@ def ensure_demo_offering(session, provider: Provider, starting_price: float) -> 
             price=starting_price,
             price_unit=demo_price_unit(provider.provider_type),
             minimum_quantity=50 if provider.provider_type == "Catering" else None,
-            event_types='["Wedding","Birthday","Engagement","Anniversary","Family celebration"]',
+            event_types=json.dumps(DEMO_EVENT_TYPES, ensure_ascii=False),
             all_events=False,
         )
     )
@@ -158,6 +296,124 @@ def seed_demo_providers() -> tuple[int, int]:
             provider = session.query(Provider).filter_by(user_id=user.id).first()
             ensure_demo_offering(session, provider, starting_price)
             created += 1
+
+        covered = set()
+        jharkhand_providers = (
+            session.query(Provider).filter(Provider.state == "Jharkhand").all()
+        )
+        for provider in jharkhand_providers:
+            if provider.provider_type:
+                covered.add((provider.city, provider.provider_type))
+            for offering in session.query(ProviderOffering).filter_by(
+                provider_id=provider.id
+            ):
+                if offering.category:
+                    covered.add((provider.city, offering.category))
+
+        phone_number = 10000
+        for city in JHARKHAND_CITIES:
+            for service_type in DEMO_SERVICE_TYPES:
+                if (city, service_type) in covered:
+                    continue
+                category_slug = re.sub(
+                    r"[^a-z0-9]+", "-", service_type.lower()
+                ).strip("-")
+                city_slug = re.sub(r"[^a-z0-9]+", "-", city.lower()).strip("-")
+                email = f"demo.provider.jharkhand.{city_slug}.{category_slug}@eventhub.local"
+                existing_user = (
+                    session.query(User)
+                    .filter(func.lower(User.email) == email.lower())
+                    .first()
+                )
+                if existing_user:
+                    existing_provider = (
+                        session.query(Provider)
+                        .filter_by(user_id=existing_user.id)
+                        .first()
+                    )
+                    if not existing_provider:
+                        raise RuntimeError(
+                            f"Cannot seed {email}: an account exists without "
+                            "a provider profile."
+                        )
+                    ensure_demo_offering(
+                        session,
+                        existing_provider,
+                        DEMO_SERVICE_PRICES[service_type],
+                    )
+                    skipped += 1
+                    covered.add((city, service_type))
+                    continue
+
+                phone = f"70000{phone_number:05d}"
+                while session.query(User.id).filter_by(phone=phone).first():
+                    phone_number += 1
+                    phone = f"70000{phone_number:05d}"
+                phone_number += 1
+
+                user = User(
+                    name=f"Demo Jharkhand Provider {city_slug} {category_slug}",
+                    email=email,
+                    phone=phone,
+                    password_hash=pwd.hash(secrets.token_urlsafe(32)),
+                    role="PROVIDER",
+                    email_verified=False,
+                    active=True,
+                )
+                session.add(user)
+                session.flush()
+                title = (
+                    f"Other service: local event support - {city}"
+                    if service_type == "Other"
+                    else f"{service_type} sample service - {city}"
+                )
+                provider = Provider(
+                    user_id=user.id,
+                    business_name=f"Demo {service_type} - {city}",
+                    business_title=f"Sample {service_type} listing for {city}",
+                    category=service_type,
+                    provider_type=service_type,
+                    city=city,
+                    state="Jharkhand",
+                    description=(
+                        f"Synthetic demo listing for {service_type} in {city}, "
+                        "Jharkhand. This is not a real business; sample prices "
+                        "are not verified market rates. Contact details and "
+                        "social profiles are intentionally not provided."
+                    ),
+                    service_radius=50,
+                    years_experience=0,
+                    starting_price=DEMO_SERVICE_PRICES[service_type],
+                    price_unit=demo_price_unit(service_type),
+                    rating=0,
+                    review_count=0,
+                    verified=False,
+                    verification_status="PENDING",
+                )
+                session.add(provider)
+                session.flush()
+                session.add(
+                    ProviderOffering(
+                        provider_id=provider.id,
+                        title=title,
+                        category=service_type,
+                        description=(
+                            f"Synthetic example offering for {service_type} in "
+                            f"{city}, Jharkhand. Not a verified market rate; "
+                            "confirm scope and final price with the provider."
+                        ),
+                        inclusions="Example scope only; confirm inclusions and availability.",
+                        price=DEMO_SERVICE_PRICES[service_type],
+                        price_unit=demo_price_unit(service_type),
+                        minimum_quantity=50 if service_type == "Catering" else None,
+                        event_types=json.dumps(
+                            DEMO_EVENT_TYPES, ensure_ascii=False
+                        ),
+                        all_events=False,
+                    )
+                )
+                created += 1
+                covered.add((city, service_type))
         session.commit()
     return created, skipped
 

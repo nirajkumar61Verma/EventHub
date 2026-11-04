@@ -13,6 +13,11 @@ import {
   Typography,
 } from "@mui/material";
 import { indiaLocations, indianStates } from "../indiaLocations";
+import {
+  eventCategories,
+  eventCategoryNames,
+  type EventCategory,
+} from "../eventCategories";
 
 type Provider = {
   id: number;
@@ -140,18 +145,6 @@ type EventRequestPageProps = {
   onBrowse: () => void;
 };
 
-const eventTypes = [
-  "Wedding",
-  "Birthday",
-  "Engagement",
-  "Anniversary",
-  "Baby shower",
-  "Graduation",
-  "Corporate event",
-  "Family celebration",
-  "Other",
-];
-
 const weddingStyles = [
   "Not decided yet",
   "Punjabi",
@@ -162,20 +155,55 @@ const weddingStyles = [
   "Bengali",
   "Maharashtrian",
   "North Indian",
+  "Assamese",
+  "Odia",
+  "Kashmiri",
+  "Konkani",
+  "Malayali / Kerala",
+  "Tamil",
+  "Telugu",
+  "Kannada",
+  "Sikh",
+  "Muslim / Nikah",
+  "Christian",
+  "Jain",
+  "Buddhist",
+  "Tribal / regional",
   "Mixed traditions",
   "Other",
 ];
 
 const functionSuggestions: Record<string, string[]> = {
-  Wedding: ["Mehndi", "Haldi", "Sangeet", "Wedding ceremony", "Reception"],
+  Wedding: ["Engagement / Sagai", "Mehndi", "Haldi", "Sangeet", "Baraat", "Wedding ceremony / Pheras", "Reception"],
   Birthday: ["Welcome", "Cake cutting", "Dinner", "Entertainment"],
-  Engagement: ["Engagement ceremony", "Ring exchange", "Dinner"],
+  Engagement: ["Welcome", "Engagement / Sagai ceremony", "Ring exchange", "Family photos", "Dinner"],
   Anniversary: ["Welcome", "Celebration ceremony", "Dinner"],
-  "Baby shower": ["Welcome", "Games and activities", "Celebration"],
+  "Baby shower": ["Welcome", "Blessing ceremony", "Games and activities", "Gift opening", "Celebration meal"],
   Graduation: ["Graduation ceremony", "Photo session", "Celebration"],
   "Corporate event": ["Registration", "Opening session", "Main program", "Networking"],
   "Family celebration": ["Welcome", "Main celebration", "Dinner"],
+  "Housewarming / Griha Pravesh": ["Griha Pravesh puja", "Havan", "Guest welcome", "Prasad / meal"],
+  "Puja / religious ceremony": ["Guest welcome", "Puja / prayer", "Havan / aarti", "Prasad / community meal"],
+  "Festival celebration": ["Venue setup", "Community gathering", "Cultural program", "Festival meal"],
+  "Naming ceremony / Annaprashan": ["Welcome", "Naming / blessing ceremony", "Annaprashan", "Family photos", "Meal"],
+  "Mundan / first haircut": ["Welcome", "Puja / blessings", "Mundan ceremony", "Family photos", "Meal"],
+  "Thread ceremony / Upanayan": ["Welcome", "Puja / havan", "Thread ceremony", "Blessings", "Meal"],
+  Retirement: ["Welcome", "Felicitations", "Speeches", "Memory sharing", "Meal"],
+  Farewell: ["Welcome", "Speeches", "Cultural program", "Gifts and photos", "Meal"],
+  "Community event": ["Registration", "Welcome", "Cultural program", "Community meal", "Closing"],
+  "Political rally": ["Setup", "Public gathering", "Speeches", "Crowd coordination", "Closing"],
+  "Campaign meeting": ["Registration", "Welcome", "Main address", "Questions and answers", "Closing"],
+  "Town hall / public outreach": ["Registration", "Welcome", "Public discussion", "Questions and answers", "Closing"],
   Other: [],
+};
+
+const eventSuggestionAliases: Record<string, string> = {
+  "Diwali celebration": "Festival celebration",
+  "Office Diwali celebration": "Festival celebration",
+  "Holi celebration": "Festival celebration",
+  "Navratri / Durga Puja celebration": "Festival celebration",
+  "Eid celebration": "Festival celebration",
+  "Christmas celebration": "Festival celebration",
 };
 
 const commonServicesByEvent: Record<string, string[]> = {
@@ -191,6 +219,16 @@ const commonServicesByEvent: Record<string, string[]> = {
     "Wedding Planner",
     "Cakes & Desserts",
     "Entertainment",
+    "Pandit / Priest",
+    "Pandal & Tent",
+    "Sound & Lighting",
+    "Dhol / Baraat Band",
+    "Bridal Wear & Styling",
+    "Invitation Design & Printing",
+    "Guest Transport",
+    "Guest Accommodation",
+    "Rangoli & Traditional Art",
+    "Return Gifts & Favors",
   ],
   Birthday: [
     "Catering",
@@ -200,6 +238,10 @@ const commonServicesByEvent: Record<string, string[]> = {
     "Entertainment",
     "Music & DJ",
     "Venue",
+    "Pandal & Tent",
+    "Sound & Lighting",
+    "Party Rentals",
+    "Return Gifts & Favors",
   ],
   Engagement: [
     "Catering",
@@ -209,6 +251,9 @@ const commonServicesByEvent: Record<string, string[]> = {
     "Music & DJ",
     "Venue",
     "Event Planner",
+    "Pandit / Priest",
+    "Pandal & Tent",
+    "Invitation Design & Printing",
   ],
   Anniversary: [
     "Catering",
@@ -217,6 +262,8 @@ const commonServicesByEvent: Record<string, string[]> = {
     "Florist",
     "Music & DJ",
     "Venue",
+    "Cakes & Desserts",
+    "Event Planner",
   ],
   "Baby shower": [
     "Catering",
@@ -225,6 +272,7 @@ const commonServicesByEvent: Record<string, string[]> = {
     "Cakes & Desserts",
     "Venue",
     "Event Planner",
+    "Return Gifts & Favors",
   ],
   Graduation: [
     "Photography",
@@ -232,6 +280,8 @@ const commonServicesByEvent: Record<string, string[]> = {
     "Venue",
     "Decoration",
     "Entertainment",
+    "Sound & Lighting",
+    "Event Planner",
   ],
   "Corporate event": [
     "Event Planner",
@@ -241,6 +291,11 @@ const commonServicesByEvent: Record<string, string[]> = {
     "Decoration",
     "Music & DJ",
     "Entertainment",
+    "AV & Presentation",
+    "Stage & Seating",
+    "Guest Transport",
+    "Security",
+    "Power Backup",
   ],
   "Family celebration": [
     "Catering",
@@ -249,6 +304,148 @@ const commonServicesByEvent: Record<string, string[]> = {
     "Music & DJ",
     "Venue",
     "Cakes & Desserts",
+    "Pandit / Priest",
+    "Pandal & Tent",
+    "Sound & Lighting",
+  ],
+  "Housewarming / Griha Pravesh": [
+    "Pandit / Priest",
+    "Puja Samagri",
+    "Havan Setup",
+    "Catering",
+    "Photography",
+    "Decoration",
+    "Florist",
+    "Pandal & Tent",
+    "Sound & Lighting",
+    "Guest Seating & Rentals",
+  ],
+  "Puja / religious ceremony": [
+    "Pandit / Priest",
+    "Puja Samagri",
+    "Havan Setup",
+    "Catering",
+    "Photography",
+    "Florist",
+    "Pandal & Tent",
+    "Sound & Lighting",
+    "Guest Seating & Rentals",
+    "Guest Transport",
+  ],
+  "Festival celebration": [
+    "Catering",
+    "Decoration",
+    "Pandal & Tent",
+    "Sound & Lighting",
+    "Music & DJ",
+    "Entertainment",
+    "Security",
+    "Power Backup",
+    "Guest Seating & Rentals",
+    "Photography",
+  ],
+  "Naming ceremony / Annaprashan": [
+    "Catering",
+    "Cakes & Desserts",
+    "Photography",
+    "Decoration",
+    "Pandit / Priest",
+    "Puja Samagri",
+    "Florist",
+    "Venue",
+    "Return Gifts & Favors",
+  ],
+  "Mundan / first haircut": [
+    "Pandit / Priest",
+    "Puja Samagri",
+    "Catering",
+    "Photography",
+    "Decoration",
+    "Florist",
+    "Venue",
+    "Guest Transport",
+  ],
+  "Thread ceremony / Upanayan": [
+    "Pandit / Priest",
+    "Puja Samagri",
+    "Havan Setup",
+    "Catering",
+    "Photography",
+    "Decoration",
+    "Florist",
+    "Pandal & Tent",
+    "Guest Seating & Rentals",
+  ],
+  Retirement: [
+    "Event Planner",
+    "Venue",
+    "Catering",
+    "Photography",
+    "Decoration",
+    "AV & Presentation",
+    "Music & DJ",
+    "Cakes & Desserts",
+    "Gifts & Mementos",
+  ],
+  Farewell: [
+    "Event Planner",
+    "Venue",
+    "Catering",
+    "Photography",
+    "Decoration",
+    "AV & Presentation",
+    "Music & DJ",
+    "Entertainment",
+    "Gifts & Mementos",
+  ],
+  "Community event": [
+    "Event Planner",
+    "Venue",
+    "Catering",
+    "Pandal & Tent",
+    "Sound & Lighting",
+    "Stage & Seating",
+    "Entertainment",
+    "Security",
+    "Power Backup",
+    "Guest Transport",
+    "Photography",
+  ],
+  "Political rally": [
+    "Event Planner",
+    "Venue",
+    "Pandal & Tent",
+    "Sound & Lighting",
+    "AV & Presentation",
+    "Stage & Seating",
+    "Security",
+    "Power Backup",
+    "Guest Transport",
+    "Catering",
+    "Photography",
+    "Anchor / Emcee",
+  ],
+  "Campaign meeting": [
+    "Event Planner",
+    "Venue",
+    "AV & Presentation",
+    "Stage & Seating",
+    "Sound & Lighting",
+    "Security",
+    "Catering",
+    "Photography",
+    "Guest Transport",
+  ],
+  "Town hall / public outreach": [
+    "Event Planner",
+    "Venue",
+    "AV & Presentation",
+    "Sound & Lighting",
+    "Stage & Seating",
+    "Guest Seating & Rentals",
+    "Security",
+    "Catering",
+    "Photography",
   ],
   Other: [
     "Catering",
@@ -260,13 +457,21 @@ const commonServicesByEvent: Record<string, string[]> = {
   ],
 };
 
+for (const [eventType, suggestionType] of Object.entries(eventSuggestionAliases)) {
+  functionSuggestions[eventType] = functionSuggestions[suggestionType];
+  commonServicesByEvent[eventType] = commonServicesByEvent[suggestionType];
+}
+
 const serviceCategories = [
   { name: "Food & treats", matches: /cater|food|cake|dessert|beverage|bakery/i },
   { name: "Photography & video", matches: /photo|video|cinema|film/i },
   { name: "Music & entertainment", matches: /music|dj|dance|entertain|anchor|band|perform/i },
-  { name: "Decor & venue", matches: /decor|flor|venue|stage|lighting|rental/i },
+  { name: "Ceremonial & religious services", matches: /pandit|priest|puja|purohit|havan|samagri|religious/i },
+  { name: "Decor & venue", matches: /decor|flor|venue|stage|lighting|pandal|tent|rangoli|traditional art|rental|seating/i },
   { name: "Beauty & styling", matches: /makeup|make.up|mehndi|henna|hair|beauty|groom/i },
   { name: "Planning & coordination", matches: /plan|coordinat|organis|organiz|manage/i },
+  { name: "Guest, travel & logistics", matches: /transport|accommodation|security|power backup|invitation|printing|gift|memento/i },
+  { name: "Production & equipment", matches: /sound|av &|presentation|equipment|generator|led|screen/i },
 ];
 
 function localDateInputValue() {
@@ -306,6 +511,7 @@ export default function EventRequestPage({
 }: EventRequestPageProps) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [events, setEvents] = useState<any[]>([]);
+  const [eventCategory, setEventCategory] = useState<EventCategory>("Personal & family");
   const [eventType, setEventType] = useState("Wedding");
   const [customEventType, setCustomEventType] = useState("");
   const [weddingStyle, setWeddingStyle] = useState("Not decided yet");
@@ -318,6 +524,7 @@ export default function EventRequestPage({
   const [guests, setGuests] = useState("");
   const [budget, setBudget] = useState("");
   const [venue, setVenue] = useState("");
+  const [ceremonyPreferences, setCeremonyPreferences] = useState("");
   const [details, setDetails] = useState("");
   const [selectedProviders, setSelectedProviders] = useState<number[]>(
     initialProviderId ? [initialProviderId] : [],
@@ -356,6 +563,7 @@ export default function EventRequestPage({
   }, [api]);
 
   const availableCities = state ? indiaLocations[state] || [] : [];
+  const eventTypes = eventCategories[eventCategory];
   const serviceOptions = useMemo(
     () => {
       const services = providers.flatMap((provider) => [
@@ -631,6 +839,9 @@ export default function EventRequestPage({
       eventType === "Wedding" && weddingStyle !== "Not decided yet"
         ? `Wedding style / traditions: ${weddingStyle === "Other" ? customWeddingStyle.trim() : weddingStyle}`
         : "",
+      ceremonyPreferences.trim()
+        ? `Ceremony, rituals, or tradition requirements: ${ceremonyPreferences.trim()}`
+        : "",
       `Event schedule:\n${scheduleDetails}`,
       venue.trim() ? `Venue / location details: ${venue.trim()}` : "",
       details.trim() ? `Additional event details: ${details.trim()}` : "",
@@ -699,7 +910,28 @@ export default function EventRequestPage({
             <Typography className="event-form-step">01 <span>EVENT BASICS</span></Typography>
             <Typography variant="h6" className="event-form-section-title">Start with the essentials</Typography>
             <Box className="event-details-grid">
-            <TextField select label="Event type" required value={eventType} onChange={(event) => setEventType(event.target.value)}>
+            <TextField
+              select
+              label="Event category"
+              required
+              value={eventCategory}
+              onChange={(event) => {
+                const nextCategory = event.target.value as EventCategory;
+                setEventCategory(nextCategory);
+                setEventType(eventCategories[nextCategory][0]);
+                setCustomEventType("");
+              }}
+              helperText="Choose the broad event group first to narrow the list."
+            >
+              {eventCategoryNames.map((category) => <MenuItem key={category} value={category}>{category}</MenuItem>)}
+            </TextField>
+            <TextField
+              select
+              label="Event type"
+              required
+              value={eventType}
+              onChange={(event) => setEventType(event.target.value)}
+            >
               {eventTypes.map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
             </TextField>
             {eventType === "Other" && <TextField label="Describe your event" required value={customEventType} onChange={(event) => setCustomEventType(event.target.value)} slotProps={{ htmlInput: { maxLength: 100 } }} />}
@@ -864,6 +1096,15 @@ export default function EventRequestPage({
 
           <Box className="event-form-section event-notes-section">
           <Typography className="event-form-step">03 <span>PERSONAL TOUCHES</span></Typography>
+          <TextField
+            label="Ceremony, rituals, or traditions (optional)"
+            multiline
+            minRows={2}
+            value={ceremonyPreferences}
+            onChange={(event) => setCeremonyPreferences(event.target.value)}
+            helperText="Describe any event-specific requirements providers should know. You do not need to share your religion."
+            slotProps={{ htmlInput: { maxLength: 1000 } }}
+          />
           <TextField
             label="Notes for providers (optional)"
             multiline

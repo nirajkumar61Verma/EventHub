@@ -25,6 +25,7 @@ export default function AppFooter({ onPage }: AppFooterProps) {
         </Box>
         <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>
           <Button onClick={() => onPage("providers")}>Providers</Button>
+          <Button onClick={() => onPage("contact")}>Contact us</Button>
           <Button onClick={() => onPage("help")}>Help</Button>
           <Button onClick={() => onPage("about")}>About</Button>
         </Stack>

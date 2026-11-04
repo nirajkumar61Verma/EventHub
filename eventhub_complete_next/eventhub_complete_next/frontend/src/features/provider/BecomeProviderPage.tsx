@@ -11,6 +11,7 @@ import {
 } from "@mui/material";
 import { api } from "../../api/client";
 import { indiaLocations, indianStates } from "../../indiaLocations";
+import { otherServiceCategory, serviceCategories } from "../../serviceCategories";
 
 type BecomeProviderPageProps = {
   onComplete: (user: any) => void;
@@ -184,16 +185,34 @@ export default function BecomeProviderPage({
             sx={fieldSx}
           />
           <TextField
-            label="Service you provide"
+            select
+            label="Primary service you provide"
             required
             fullWidth
-            slotProps={{ htmlInput: { maxLength: 120 } }}
-            value={values.category}
+            value={serviceCategories.some((service) => service === values.category) ? values.category : values.category ? otherServiceCategory : ""}
             onChange={(event) => update("category", event.target.value)}
-            placeholder="e.g. Mehndi artist, Dancer, Anchor, DJ, Photographer"
-            helperText="Enter any event service; it does not need to be in a preset list."
+            helperText="Choose the service customers should use to find your profile."
             sx={fieldSx}
-          />
+          >
+            <MenuItem value="">Select a service</MenuItem>
+            {serviceCategories.map((service) => (
+              <MenuItem key={service} value={service}>{service}</MenuItem>
+            ))}
+            <MenuItem value={otherServiceCategory}>{otherServiceCategory}</MenuItem>
+          </TextField>
+          {values.category && !serviceCategories.some((service) => service === values.category) && (
+            <TextField
+              label="Name your other service"
+              required
+              fullWidth
+              slotProps={{ htmlInput: { maxLength: 120 } }}
+              value={values.category === otherServiceCategory ? "" : values.category}
+              onChange={(event) => update("category", event.target.value)}
+              placeholder="Enter the service customers should search for"
+              helperText="Use the name customers are likely to look for."
+              sx={fieldSx}
+            />
+          )}
           <Box
             sx={{
               display: "grid",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../../api/client";
 
 export default function AdminDashboard() {
@@ -9,6 +9,7 @@ export default function AdminDashboard() {
   const [categories, setCategories] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [reports, setReports] = useState<any[]>([]);
+  const [supportMessages, setSupportMessages] = useState<any[]>([]);
   const [accountError, setAccountError] = useState("");
 
   async function load() {
@@ -19,6 +20,7 @@ export default function AdminDashboard() {
       nextCategories,
       nextServices,
       nextReports,
+      nextSupportMessages,
     ] = await Promise.all([
       api("/admin/summary"),
       api("/admin/providers"),
@@ -26,6 +28,7 @@ export default function AdminDashboard() {
       api("/admin/categories"),
       api("/admin/services"),
       api("/admin/reviews/reported"),
+      api("/admin/support/messages"),
     ]);
     setSummary(nextSummary);
     setProviders(nextProviders);
@@ -33,6 +36,7 @@ export default function AdminDashboard() {
     setCategories(nextCategories);
     setServices(nextServices);
     setReports(nextReports);
+    setSupportMessages(nextSupportMessages);
   }
 
   useEffect(() => {
@@ -56,7 +60,7 @@ export default function AdminDashboard() {
     <main>
       <h1>Admin Console</h1>
       <div className="tabs">
-        {["summary", "providers", "accounts", "catalog", "reports"].map((item) => (
+        {["summary", "providers", "accounts", "catalog", "reports", "support"].map((item) => (
           <button
             key={item}
             onClick={() => setTab(item)}
@@ -241,7 +245,86 @@ export default function AdminDashboard() {
           )}
         </div>
       )}
+      {tab === "support" && (
+        <section>
+          <h2>Customer support chat</h2>
+          <p>Reply to customer messages from provider profiles. Replies appear in the customer’s in-app chat.</p>
+          {supportMessages.length === 0 ? (
+            <div className="card">No customer support messages yet.</div>
+          ) : (
+            <div className="list">
+              {[...supportMessages].reverse().map((entry) => (
+                <div className="card" key={entry.id}>
+                  <b>
+                    {entry.sender_role === "ADMIN" ? "EventHub support" : entry.customer_name}
+                    {entry.sender_role !== "ADMIN" && ` · ${entry.customer_phone || "No phone"}`}
+                  </b>
+                  <p>{entry.provider_name}</p>
+                  <p style={{ whiteSpace: "pre-wrap" }}>{entry.message}</p>
+                  <small>{new Date(entry.created_at).toLocaleString()}</small>
+                  {entry.sender_role !== "ADMIN" && (
+                    <SupportReply
+                      customerId={entry.customer_id}
+                      providerId={entry.provider_id}
+                      onDone={load}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </main>
+  );
+}
+
+function SupportReply({
+  customerId,
+  providerId,
+  onDone,
+}: {
+  customerId: number;
+  providerId: number | null;
+  onDone: () => Promise<void>;
+}) {
+  const [reply, setReply] = useState("");
+  const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSending(true);
+    setError("");
+    try {
+      await api(`/admin/support/messages/${customerId}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ message: reply, provider_id: providerId }),
+      });
+      setReply("");
+      await onDone();
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Unable to send reply.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <form className="inline" onSubmit={submit}>
+      <input
+        aria-label="Reply to customer"
+        placeholder="Write a support reply"
+        value={reply}
+        onChange={(event) => setReply(event.target.value)}
+        maxLength={2000}
+        required
+      />
+      <button type="submit" disabled={sending}>
+        {sending ? "Sending…" : "Reply"}
+      </button>
+      {error && <span role="alert" className="error">{error}</span>}
+    </form>
   );
 }
 
