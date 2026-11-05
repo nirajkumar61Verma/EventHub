@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   EmailOutlined,
   Facebook,
@@ -25,6 +25,11 @@ import {
 import { api } from "../../api/client";
 import { eventHubSupportPhone } from "../../contactDetails";
 import { serviceCategories } from "../../serviceCategories";
+import {
+  isChatSoundEnabled,
+  playChatNotification,
+  setChatSoundEnabled,
+} from "../../chatNotifications";
 
 type ProviderProfileProps = {
   id: number;
@@ -68,6 +73,11 @@ export default function ProviderProfile({
   const [supportError, setSupportError] = useState("");
   const [loadingSupportMessages, setLoadingSupportMessages] = useState(false);
   const [sendingSupportMessage, setSendingSupportMessage] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(isChatSoundEnabled);
+  const [supportNotice, setSupportNotice] = useState("");
+  const supportMessagesRef = useRef<HTMLDivElement>(null);
+  const lastSupportMessageIdRef = useRef(0);
+  const initializedSupportRef = useRef(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -102,9 +112,49 @@ export default function ProviderProfile({
 
   const loadSupportMessages = useCallback(async () => {
     const messages = await api(`/support/messages?provider_id=${id}`);
+    const newestId = messages.reduce(
+      (highest: number, entry: { id: number }) => Math.max(highest, entry.id),
+      0,
+    );
+    if (initializedSupportRef.current) {
+      const incoming = messages.filter(
+        (entry: { id: number; sender_role: string }) =>
+          entry.id > lastSupportMessageIdRef.current &&
+          entry.sender_role === "ADMIN",
+      );
+      if (incoming.length > 0) {
+        setSupportNotice("New message from EventHub support");
+        playChatNotification();
+      }
+    } else {
+      initializedSupportRef.current = true;
+    }
+    lastSupportMessageIdRef.current = Math.max(
+      lastSupportMessageIdRef.current,
+      newestId,
+    );
     setSupportMessages(messages);
     setSupportError("");
   }, [id]);
+
+  useEffect(() => {
+    initializedSupportRef.current = false;
+    lastSupportMessageIdRef.current = 0;
+  }, [id]);
+
+  useEffect(() => {
+    if (isSupportChatOpen && supportMessagesRef.current) {
+      supportMessagesRef.current.scrollTop =
+        supportMessagesRef.current.scrollHeight;
+    }
+  }, [isSupportChatOpen, supportMessages]);
+
+  function toggleSupportSound() {
+    const enabled = !soundEnabled;
+    setChatSoundEnabled(enabled);
+    setSoundEnabled(enabled);
+    if (enabled) playChatNotification();
+  }
 
   useEffect(() => {
     if (!isSupportChatOpen) return;
@@ -457,9 +507,16 @@ export default function ProviderProfile({
           <Typography component="span" display="block" variant="body2" color="text.secondary">
             About {provider.business_name}
           </Typography>
+          <Button
+            size="small"
+            onClick={toggleSupportSound}
+            sx={{ mt: 0.5, textTransform: "none" }}
+          >
+            Sound notifications: {soundEnabled ? "On" : "Off"}
+          </Button>
         </DialogTitle>
         <DialogContent dividers>
-          <Stack spacing={1.5} sx={{ minHeight: 180, maxHeight: 360, overflowY: "auto", py: 1 }}>
+          <Stack ref={supportMessagesRef} spacing={1.5} sx={{ minHeight: 180, maxHeight: 360, overflowY: "auto", py: 1 }}>
             {loadingSupportMessages && supportMessages.length === 0 && (
               <Typography color="text.secondary">Loading conversation…</Typography>
             )}
@@ -492,6 +549,7 @@ export default function ProviderProfile({
               </Box>
             ))}
           </Stack>
+          {supportNotice && <Alert severity="info" onClose={() => setSupportNotice("")} sx={{ mt: 1 }}>{supportNotice}</Alert>}
           {supportError && <Alert severity="error" sx={{ mt: 1 }}>{supportError}</Alert>}
           <Box component="form" onSubmit={sendSupportMessage} sx={{ display: "flex", gap: 1, mt: 2 }}>
             <TextField

@@ -5,14 +5,17 @@ type PlannerShortlistProps = {
   onOpen: (id: number) => void;
   onBrowse: () => void;
   onPlan: () => void;
+  onEditEvent: (id: number) => void;
 };
 
 export default function PlannerShortlist({
   onOpen,
   onBrowse,
   onPlan,
+  onEditEvent,
 }: PlannerShortlistProps) {
   const [entries, setEntries] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -21,7 +24,12 @@ export default function PlannerShortlist({
   const load = useCallback(async () => {
     setError("");
     try {
-      setEntries(await api("/customer/shortlist"));
+      const [shortlist, plannedEvents] = await Promise.all([
+        api("/customer/shortlist"),
+        api("/customer/events"),
+      ]);
+      setEntries(shortlist);
+      setEvents(plannedEvents);
     } catch (cause: any) {
       setError(cause.message || "Unable to load your planner shortlist.");
     } finally {
@@ -108,8 +116,64 @@ export default function PlannerShortlist({
         planner when you are ready.
       </p>
       <button type="button" className="primary" onClick={onPlan}>
-        Create event request
+        Create new event plan
       </button>
+      <section className="customer-planned-events" aria-labelledby="planned-events-heading">
+        <div className="row">
+          <div>
+            <h2 id="planned-events-heading">Your planned events</h2>
+            <p>View your event plans and check provider responses.</p>
+          </div>
+          <button type="button" onClick={onPlan}>Create another event</button>
+        </div>
+        {loading ? (
+          <p>Loading your planned events...</p>
+        ) : events.length === 0 ? (
+          <div className="card">
+            <p>You haven’t created an event plan yet.</p>
+            <button type="button" className="primary" onClick={onPlan}>Plan an event</button>
+          </div>
+        ) : (
+          <div className="list">
+            {events.map((event) => (
+              <article className="card planned-event-card" key={event.id}>
+                <div className="row">
+                  <div>
+                    <h3>{event.event_type} · {[event.city, event.state].filter(Boolean).join(", ")}</h3>
+                    <p>{event.event_date} · {event.guests} guests · Budget {event.budget ? `₹${Number(event.budget).toLocaleString("en-IN")}` : "Not provided"}</p>
+                  </div>
+                  <span className="status-badge">{event.status}</span>
+                </div>
+                {event.services?.length > 0 && <p>Services: {event.services.join(", ")}</p>}
+                <div className="planned-event-providers">
+                  <strong>Provider responses</strong>
+                  {event.providers?.length ? event.providers.map((provider: any) => (
+                    <div className="planned-event-provider-response" key={provider.provider_id}>
+                      <p>
+                        <strong>{provider.business_name}:</strong> {provider.quote
+                          ? `Total ₹${Number(provider.quote.amount).toLocaleString("en-IN")} (${provider.quote.status})`
+                          : provider.status}
+                      </p>
+                      {provider.quote?.service_items?.length > 0 && (
+                        <ul>
+                          {provider.quote.service_items.map((item: any, index: number) => (
+                            <li key={`${item.service}-${index}`}>
+                              <span>{item.service}</span>
+                              <span>₹{Number(item.amount).toLocaleString("en-IN")}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {provider.quote?.notes && <p>{provider.quote.notes}</p>}
+                    </div>
+                  )) : <p>No providers selected for this plan.</p>}
+                </div>
+                <button type="button" onClick={() => onEditEvent(event.id)}>Edit event plan</button>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
       <div className="stats">
         <div className="card">
           <b>

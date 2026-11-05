@@ -44,6 +44,7 @@ EventHub helps customers plan celebrations, discover event-service providers, re
 - **REQ-015 (P1):** An administrator can approve, reject, or return a provider for pending verification. Verification status is presented as a platform review status, not a guarantee of service quality.
 - **REQ-016 (P1):** An administrator can enable or disable customer/provider accounts. Disabled provider listings are excluded from public discovery.
 - **REQ-017 (P2):** An administrator can add and activate/deactivate service categories and services and view marketplace summary counts.
+- **REQ-022 (P1):** Administrators can search and filter customer/provider accounts, review account and provider profile details unavailable to normal users, and manage account access. Private contact and address data is served only by admin-authorized endpoints and is shown for legitimate operational use.
 
 ### Application feedback and navigation
 
@@ -51,15 +52,17 @@ EventHub helps customers plan celebrations, discover event-service providers, re
 - **REQ-019 (P2):** When an API request takes longer than a brief delay, the app shows a blocking loading indicator; it clears when outstanding requests finish.
 - **REQ-020 (P2):** Successful write actions show a contextual toast. Failed writes continue to show an error to the user and do not display a success message.
 - **REQ-021 (P2):** Event-planning and provider profile screens use the shared celebration theme, support narrow screens, and avoid nested scrolling where the page is intended to provide the single scroll surface.
+- **REQ-023 (P2):** Support conversations scroll to the latest message when opened or refreshed. Signed-in customers and administrators see in-app alerts for incoming support messages and can enable a locally remembered sound notification; sound remains opt-in.
 
 ## Core user scenarios and acceptance checks
 
 ### A. Customer requests provider quotes (P1)
 
 1. **Given** a signed-in customer, **when** they enter valid event details, choose at least one active provider, and submit, **then** the event and provider-specific quote requests are saved.
-2. **Given** a saved request, **when** the selected provider opens enquiries, **then** that provider sees the event brief and can submit a quote.
-3. **Given** a provider has submitted a quote, **when** the customer opens their event requests, **then** the provider response and quote status are visible.
-4. **Given** the event date is in the past or no provider is selected, **when** the customer submits, **then** the past date is rejected by the API or the form blocks submission, a clear error is shown, and no successful-request toast appears.
+2. **Given** a saved request, **when** the selected provider opens enquiries, **then** that provider sees the customer, date, location, guest count, requested services, budget, schedule, and notes in a readable event brief.
+3. **Given** a provider has reviewed the event brief, **when** they submit a quote, **then** they can enter a price for each requested service, add extra service lines, and see the calculated total before sending.
+4. **Given** a provider has submitted an itemized quote, **when** the customer opens their event requests, **then** each service price, the total, quote details, and quote status are visible.
+5. **Given** the event date is in the past or no provider is selected, **when** the customer submits, **then** the past date is rejected by the API or the form blocks submission, a clear error is shown, and no successful-request toast appears.
 
 ### B. Provider onboarding and verification (P1)
 
@@ -138,7 +141,14 @@ sequenceDiagram
     C->>API: GET own event requests
     API->>DB: Read customer-owned events, providers, and quotes
     API-->>C: Return replies and quote statuses
+    C->>API: PUT updates to an owned event plan
+    API->>DB: Update event details and requirements, preserving provider responses
+    API-->>C: Return updated plan
 ```
+
+Customers can view planned events and provider responses from the planner dashboard, edit an existing plan without changing its provider recipients, or create a separate new plan. Providers receive the submitted event brief in their enquiries and can respond with an itemized price for each requested service, additional service lines, a calculated total, and explanatory notes; customers can see the itemized breakdown alongside each provider response.
+
+Providers receive persistent in-app notifications when a customer newly shortlists their profile or sends them an event plan. The provider dashboard polls for new notifications, shows an unread count and alert, supports optional sound, and lets providers mark notifications as read.
 
 ## Key data entities
 
@@ -149,8 +159,9 @@ sequenceDiagram
 | Event | Customer-owned celebration brief with type, date, location, guest count, budget, and status. |
 | Requirement | Service needs attached to an event; includes service name and details. |
 | QuoteRequest | Connects an event and customer to one selected provider; tracks request status and provider-facing details. |
-| Quote | Provider response to an assigned quote request; includes amount, unit, notes, and status. |
+| Quote | Provider response to an assigned quote request; includes itemized service prices, their total, notes, and status. |
 | Booking | Tracks an accepted quote and event through provider booking lifecycle states. |
+| ProviderNotification | Persists a customer shortlist or event-plan notification for a provider, including read state. |
 | PlannerShortlist | Connects a customer to a provider with notes and shortlisted/selected status. |
 | Review | Customer rating/comment for a provider and optionally a completed booking; supports publication and report moderation. |
 | Category and Service | Admin-managed service taxonomy used to organize offerings. |

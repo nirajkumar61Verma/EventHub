@@ -161,6 +161,16 @@ class Event(Base):
     budget: Mapped[float] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(30), default="OPEN")
 
+class ProviderNotification(Base):
+    __tablename__="provider_notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("events.id"), nullable=True, index=True)
+    notification_type: Mapped[str] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
 class Requirement(Base):
     __tablename__="event_requirements"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -184,6 +194,7 @@ class Quote(Base):
     request_id: Mapped[int] = mapped_column(ForeignKey("quote_requests.id"))
     provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"))
     amount: Mapped[float] = mapped_column(Float)
+    service_items: Mapped[str] = mapped_column(Text, default="[]")
     unit: Mapped[str] = mapped_column(String(30), default="event")
     notes: Mapped[str] = mapped_column(Text, default="")
     valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -382,6 +393,15 @@ class EventRequestIn(BaseModel):
     services:list[str]=Field(default_factory=list,max_length=20)
     venue:str=Field(default="",max_length=300)
     details:str=Field(default="",max_length=4000)
+class CustomerEventUpdateIn(BaseModel):
+    event_type:str=Field(min_length=1,max_length=100)
+    city:str=Field(min_length=1,max_length=100)
+    state:str=Field(min_length=1,max_length=100)
+    event_date:date
+    guests:int=Field(gt=0,le=100000)
+    budget:float=Field(ge=0,allow_inf_nan=False)
+    services:list[str]=Field(default_factory=list,max_length=20)
+    details:str=Field(default="",max_length=4000)
 class ProviderIn(BaseModel):
     business_name:str=Field(min_length=1,max_length=180)
     category:str=Field(min_length=1,max_length=120)
@@ -462,8 +482,16 @@ class SupportMessageIn(BaseModel):
 
 class CategoryIn(BaseModel): name:str; description:str=""
 class ServiceIn(BaseModel): category_id:int; name:str
+class QuoteServiceItemIn(BaseModel):
+    service:str=Field(min_length=1,max_length=120)
+    amount:float=Field(gt=0,allow_inf_nan=False)
+
 class QuoteIn(BaseModel):
-    amount:float=Field(gt=0); unit:str="event"; notes:str=""; valid_until:date|None=None
+    amount:float=Field(gt=0,allow_inf_nan=False)
+    unit:str=Field(default="event",pattern=r"^(plate|person|hour|day|event|package)$")
+    notes:str=Field(default="",max_length=2000)
+    service_items:list[QuoteServiceItemIn]=Field(default_factory=list,max_length=30)
+    valid_until:date|None=None
 class ReviewIn(BaseModel):
     rating:float=Field(ge=1,le=5); quality:float=Field(ge=1,le=5); professionalism:float=Field(ge=1,le=5)
     communication:float=Field(ge=1,le=5); value:float=Field(ge=1,le=5); timeliness:float=Field(ge=1,le=5); comment:str=""
@@ -481,6 +509,7 @@ class ReportIn(BaseModel): reason:str
 def startup():
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS service_items TEXT NOT NULL DEFAULT '[]'"))
         connection.execute(text("ALTER TABLE provider_offerings ADD COLUMN IF NOT EXISTS event_types TEXT NOT NULL DEFAULT '[]'"))
         connection.execute(text("ALTER TABLE provider_offerings ADD COLUMN IF NOT EXISTS all_events BOOLEAN NOT NULL DEFAULT FALSE"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30) NOT NULL DEFAULT ''"))
@@ -940,6 +969,11 @@ def add_to_planner_shortlist(x:PlannerShortlistIn,u=Depends(current_user),s:Sess
     else:
         entry=PlannerShortlist(customer_id=u.id,provider_id=p.id,note=x.note.strip())
         s.add(entry)
+        s.add(ProviderNotification(
+            provider_id=p.id,
+            customer_id=u.id,
+            notification_type="SHORTLIST",
+        ))
     s.commit()
     s.refresh(entry)
     owner=s.get(User,p.user_id)
@@ -988,6 +1022,59 @@ def remove_from_planner_shortlist(provider_id:int,u=Depends(current_user),s:Sess
     s.delete(entry)
     s.commit()
     return {"removed":True,"provider_id":provider_id}
+
+@app.get("/api/v1/provider/notifications")
+def provider_notifications(u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p:
+        raise HTTPException(404,"Provider profile not found")
+    rows=s.query(ProviderNotification,User,Event).join(
+        User,ProviderNotification.customer_id==User.id
+    ).outerjoin(
+        Event,ProviderNotification.event_id==Event.id
+    ).filter(
+        ProviderNotification.provider_id==p.id,
+        User.active.is_(True),
+    ).order_by(
+        ProviderNotification.created_at.desc(),
+        ProviderNotification.id.desc(),
+    ).limit(100).all()
+    return [{
+        "id":notification.id,
+        "notification_type":notification.notification_type,
+        "customer_name":customer.name,
+        "event_id":event.id if event else None,
+        "event_type":event.event_type if event else None,
+        "event_date":str(event.event_date) if event else None,
+        "city":event.city if event else None,
+        "state":event.state if event else None,
+        "created_at":notification.created_at.isoformat(),
+        "read_at":notification.read_at.isoformat() if notification.read_at else None,
+    } for notification,customer,event in rows]
+
+@app.patch("/api/v1/provider/notifications/{notification_id}/read")
+def mark_provider_notification_read(
+    notification_id:int,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p:
+        raise HTTPException(404,"Provider profile not found")
+    notification=s.query(ProviderNotification).filter_by(
+        id=notification_id,
+        provider_id=p.id,
+    ).first()
+    if not notification:
+        raise HTTPException(404,"Notification not found")
+    if notification.read_at is None:
+        notification.read_at=datetime.utcnow()
+        s.commit()
+    return {"id":notification.id,"read_at":notification.read_at.isoformat()}
 
 @app.put("/api/v1/provider/profile")
 def update_provider(x:ProviderIn,u=Depends(current_user),s:Session=Depends(db)):
@@ -1199,10 +1286,15 @@ def enquiries(u=Depends(current_user),s:Session=Depends(db)):
     for r in rs:
         e=s.get(Event,r.event_id); q=s.query(Quote).filter_by(request_id=r.id).first()
         requirements=s.query(Requirement).filter_by(event_id=e.id).all()
-        out.append({"id":r.id,"event_id":r.event_id,"event_type":e.event_type,"city":e.city,"state":e.state,"event_date":str(e.event_date),
+        customer=s.get(User,r.customer_id)
+        out.append({"id":r.id,"event_id":r.event_id,"customer_name":customer.name if customer else "Customer",
+                    "event_type":e.event_type,"city":e.city,"state":e.state,"event_date":str(e.event_date),
                     "guests":e.guests,"budget":e.budget,"details":r.details,
                     "services":[item.service_name for item in requirements],"status":r.status,
-                    "quote":None if not q else {"id":q.id,"amount":q.amount,"unit":q.unit,"notes":q.notes,"status":q.status}})
+                    "quote":None if not q else {
+                        "id":q.id,"amount":q.amount,"unit":q.unit,"notes":q.notes,"status":q.status,
+                        "service_items":json.loads(q.service_items or "[]"),
+                    }})
     return out
 
 @app.post("/api/v1/customer/events")
@@ -1254,6 +1346,12 @@ def create_customer_event(x:EventRequestIn,u=Depends(current_user),s:Session=Dep
             status="PENDING",
         )
         s.add(quote_request)
+        s.add(ProviderNotification(
+            provider_id=provider.id,
+            customer_id=u.id,
+            event_id=event.id,
+            notification_type="EVENT_PLAN",
+        ))
         requests.append({"provider_id":provider.id,"business_name":provider.business_name,"status":"PENDING"})
     s.commit()
     return {
@@ -1284,6 +1382,7 @@ def customer_events(u=Depends(current_user),s:Session=Depends(db)):
                     "unit":quote.unit,
                     "notes":quote.notes,
                     "status":quote.status,
+                    "service_items":json.loads(quote.service_items or "[]"),
                 },
             })
         result.append({
@@ -1297,18 +1396,65 @@ def customer_events(u=Depends(current_user),s:Session=Depends(db)):
             "status":event.status,
             "details":requests[0].details if requests else "",
             "services":[item.service_name for item in requirements],
+            "provider_ids":[request.provider_id for request in requests],
             "providers":provider_responses,
         })
     return result
+
+@app.put("/api/v1/customer/events/{event_id}")
+def update_customer_event(
+    event_id:int,
+    x:CustomerEventUpdateIn,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    require_customer(u)
+    event=s.query(Event).filter_by(id=event_id,customer_id=u.id).first()
+    if not event:
+        raise HTTPException(404,"Event not found")
+    if x.event_date < date.today() and x.event_date != event.event_date:
+        raise HTTPException(400,"Event date cannot be changed to a past date")
+    event.event_type=x.event_type.strip()
+    event.city=x.city.strip()
+    event.state=x.state.strip()
+    event.event_date=x.event_date
+    event.guests=x.guests
+    event.budget=x.budget
+    s.query(Requirement).filter_by(event_id=event.id).delete(synchronize_session=False)
+    requested_services=list(dict.fromkeys(service.strip() for service in x.services if service.strip()))
+    for service_name in requested_services:
+        s.add(Requirement(event_id=event.id,service_name=service_name,details=x.details.strip()))
+    for request in s.query(QuoteRequest).filter_by(event_id=event.id,customer_id=u.id).all():
+        request.details=x.details.strip()
+    s.commit()
+    return {"id":event.id,"message":"Your event plan was updated."}
 
 @app.post("/api/v1/quote-requests/{rid}/quote")
 def submit_quote(rid:int,x:QuoteIn,u=Depends(current_user),s:Session=Depends(db)):
     if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}: raise HTTPException(403,"Provider role required")
     p=s.query(Provider).filter_by(user_id=u.id).first(); r=s.get(QuoteRequest,rid)
     if not p or not r or r.provider_id!=p.id: raise HTTPException(404,"Request not found")
-    q=Quote(request_id=rid,provider_id=p.id,amount=x.amount,unit=x.unit,notes=x.notes,valid_until=x.valid_until)
+    service_items=[
+        {"service":item.service.strip(),"amount":item.amount}
+        for item in x.service_items
+    ]
+    if any(not item["service"] for item in service_items):
+        raise HTTPException(422,"Each quote line must include a service name")
+    if service_items:
+        item_total=round(sum(item["amount"] for item in service_items),2)
+        if round(x.amount,2)!=item_total:
+            raise HTTPException(422,"Quote total must equal the sum of service prices")
+    q=Quote(
+        request_id=rid,
+        provider_id=p.id,
+        amount=round(sum(item["amount"] for item in service_items),2) if service_items else x.amount,
+        service_items=json.dumps(service_items,ensure_ascii=False),
+        unit=x.unit,
+        notes=x.notes,
+        valid_until=x.valid_until,
+    )
     r.status="QUOTED"; s.add(q); s.commit(); s.refresh(q)
-    return {"id":q.id,"status":q.status}
+    return {"id":q.id,"amount":q.amount,"status":q.status}
 
 @app.get("/api/v1/provider/bookings")
 def provider_bookings(u=Depends(current_user),s:Session=Depends(db)):
@@ -1341,7 +1487,38 @@ def set_availability(day:date,available:bool=True,u=Depends(current_user),s:Sess
 
 @app.get("/api/v1/admin/providers")
 def admin_providers(u=Depends(admin),s:Session=Depends(db)):
-    return [provider_json(p) for p in s.query(Provider).order_by(Provider.created_at.desc()).all()]
+    rows=s.query(Provider,User).join(User,Provider.user_id==User.id).order_by(
+        Provider.created_at.desc()
+    ).all()
+    output=[]
+    for provider,owner in rows:
+        item=provider_json(provider)
+        item.update({
+            "contact_phone":provider.contact_phone or "",
+            "alternate_contact_phone":provider.alternate_contact_phone or "",
+            "created_at":provider.created_at.isoformat(),
+            "owner":{
+                "id":owner.id,
+                "full_name":owner.name,
+                "email":owner.email,
+                "phone":owner.phone,
+                "alternate_contact_phone":owner.alternate_contact_phone or "",
+                "role":owner.role,
+                "active":owner.active,
+                "email_verified":owner.email_verified,
+                "preferred_contact_method":owner.preferred_contact_method,
+                "preferred_languages":json.loads(owner.preferred_languages or "[]"),
+                "city":owner.city,
+                "state":owner.state,
+                "address_line1":owner.address_line1,
+                "address_line2":owner.address_line2,
+                "locality":owner.locality,
+                "postal_code":owner.postal_code,
+                "created_at":owner.created_at.isoformat(),
+            },
+        })
+        output.append(item)
+    return output
 
 @app.get("/api/v1/admin/support/messages")
 def admin_support_messages(u=Depends(admin),s:Session=Depends(db)):
@@ -1394,10 +1571,19 @@ def admin_users(u=Depends(admin),s:Session=Depends(db)):
         "full_name":account.name,
         "email":account.email,
         "phone":account.phone,
+        "alternate_contact_phone":account.alternate_contact_phone or "",
         "role":account.role,
         "active":account.active,
+        "email_verified":account.email_verified,
+        "preferred_contact_method":account.preferred_contact_method,
+        "preferred_languages":json.loads(account.preferred_languages or "[]"),
         "city":account.city,
         "state":account.state,
+        "address_line1":account.address_line1,
+        "address_line2":account.address_line2,
+        "locality":account.locality,
+        "postal_code":account.postal_code,
+        "created_at":account.created_at.isoformat(),
         "business_name":provider.business_name if provider else "",
     } for account,provider in rows]
 

@@ -29,6 +29,9 @@ function successMessage(path: string, method: string) {
     return "Your rating and comment were submitted.";
   }
   if (endpoint === "/customer/events") return "Your event request was sent.";
+  if (/\/customer\/events\/\d+$/.test(endpoint) && method === "PUT") {
+    return "Your event plan was updated.";
+  }
   if (/\/customer\/shortlist\/\d+\/note$/.test(endpoint)) {
     return "Your comment was saved.";
   }

@@ -33,6 +33,7 @@ export default function App() {
   const [providerId, setProviderId] = useState(0);
   const [pendingProviderId, setPendingProviderId] = useState(0);
   const [requestProviderId, setRequestProviderId] = useState(0);
+  const [editingEventId, setEditingEventId] = useState<number | undefined>();
   const [pendingRequests, setPendingRequests] = useState(0);
   const [showLoading, setShowLoading] = useState(false);
   const [toast, setToast] = useState<{
@@ -194,6 +195,14 @@ export default function App() {
           onBrowse={() => setPage("providers")}
         />
       )}
+      {page === "event-edit" &&
+        ["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && editingEventId && (
+        <EventRequestPage
+          api={api}
+          eventId={editingEventId}
+          onBrowse={() => setPage("customer-dashboard")}
+        />
+      )}
       {page === "customer-dashboard" &&
         ["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
         <PlannerShortlist
@@ -203,6 +212,10 @@ export default function App() {
           }}
           onBrowse={() => setPage("providers")}
           onPlan={() => startEventRequest()}
+          onEditEvent={(id) => {
+            setEditingEventId(id);
+            setPage("event-edit");
+          }}
         />
       )}
       {page === "become-provider" && user?.role === "CUSTOMER" && (

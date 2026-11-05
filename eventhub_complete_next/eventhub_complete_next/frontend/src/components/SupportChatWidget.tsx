@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Alert,
+  Badge,
   Box,
   Button,
   Dialog,
@@ -9,15 +10,22 @@ import {
   DialogTitle,
   Fab,
   Stack,
+  Snackbar,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
-import { ChatOutlined } from "@mui/icons-material";
+import { ChatOutlined, WhatsApp } from "@mui/icons-material";
 import { api } from "../api/client";
+import { eventHubSupportPhone } from "../contactDetails";
+import {
+  isChatSoundEnabled,
+  playChatNotification,
+  setChatSoundEnabled,
+} from "../chatNotifications";
 
 type SupportChatWidgetProps = {
-  user: { role?: string } | null;
+  user: { id?: number; role?: string } | null;
   onLogin: () => void;
   onSignup: () => void;
 };
@@ -33,33 +41,87 @@ export default function SupportChatWidget({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(isChatSoundEnabled);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notification, setNotification] = useState("");
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const lastMessageIdRef = useRef(0);
+  const initializedMessagesRef = useRef(false);
   const isCustomer = ["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role || "");
+  const whatsappSupportUrl = `https://wa.me/91${eventHubSupportPhone}?text=${encodeURIComponent("Hi EventHub support, I need help.")}`;
 
   const loadMessages = useCallback(async () => {
     const result = await api("/support/messages");
+    const newestId = result.reduce(
+      (highest: number, entry: { id: number }) => Math.max(highest, entry.id),
+      0,
+    );
+    if (initializedMessagesRef.current) {
+      const incoming = result.filter(
+        (entry: { id: number; sender_role: string }) =>
+          entry.id > lastMessageIdRef.current && entry.sender_role === "ADMIN",
+      );
+      if (incoming.length > 0) {
+        setUnreadCount((count) => count + (open ? 0 : incoming.length));
+        setNotification(
+          incoming.length === 1
+            ? "New message from EventHub support"
+            : `${incoming.length} new messages from EventHub support`,
+        );
+        playChatNotification();
+      }
+    } else {
+      initializedMessagesRef.current = true;
+    }
+    lastMessageIdRef.current = Math.max(lastMessageIdRef.current, newestId);
     setMessages(result);
     setError("");
-  }, []);
+  }, [open]);
 
   useEffect(() => {
-    if (!open || !isCustomer) return;
-    setLoading(true);
-    loadMessages()
+    if (!isCustomer) {
+      initializedMessagesRef.current = false;
+      lastMessageIdRef.current = 0;
+      setUnreadCount(0);
+      return;
+    }
+    let active = true;
+    const refresh = () => {
+      if (open) setLoading(true);
+      loadMessages()
       .catch((cause: unknown) =>
-        setError(
-          cause instanceof Error ? cause.message : "Unable to load support chat.",
-        ),
+        active && setError(
+            cause instanceof Error ? cause.message : "Unable to load support chat.",
+          ),
       )
-      .finally(() => setLoading(false));
-    const interval = window.setInterval(() => {
-      loadMessages().catch((cause: unknown) =>
-        setError(
-          cause instanceof Error ? cause.message : "Unable to refresh support chat.",
-        ),
-      );
-    }, 5000);
-    return () => window.clearInterval(interval);
+      .finally(() => active && setLoading(false));
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    refresh();
+    const interval = window.setInterval(refreshWhenVisible, 5000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [open, isCustomer, loadMessages]);
+
+  useEffect(() => {
+    if (open && messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+      setUnreadCount(0);
+    }
+  }, [messages, open]);
+
+  function toggleSound() {
+    const enabled = !soundEnabled;
+    setChatSoundEnabled(enabled);
+    setSoundEnabled(enabled);
+    if (enabled) playChatNotification();
+  }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -83,11 +145,37 @@ export default function SupportChatWidget({
 
   return (
     <>
+      <Tooltip title={`Chat with EventHub on WhatsApp (${eventHubSupportPhone})`}>
+        <Fab
+          component="a"
+          href={whatsappSupportUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Chat with EventHub on WhatsApp"
+          sx={{
+            position: "fixed",
+            right: { xs: 16, sm: 24 },
+            bottom: { xs: 88, sm: 96 },
+            zIndex: (theme) => theme.zIndex.modal + 1,
+            width: 58,
+            height: 58,
+            bgcolor: "#25d366",
+            color: "#fff",
+            boxShadow: "0 6px 20px rgba(37, 211, 102, 0.3)",
+            "&:hover": { bgcolor: "#1da851" },
+          }}
+        >
+          <WhatsApp />
+        </Fab>
+      </Tooltip>
       <Tooltip title="Chat with EventHub support">
         <Fab
           color="primary"
           aria-label="Chat with EventHub support"
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            setOpen(true);
+            setUnreadCount(0);
+          }}
           sx={{
             position: "fixed",
             right: { xs: 16, sm: 24 },
@@ -98,7 +186,9 @@ export default function SupportChatWidget({
             boxShadow: "0 6px 20px rgba(62, 38, 45, 0.3)",
           }}
         >
-          <ChatOutlined />
+          <Badge badgeContent={unreadCount} color="error" overlap="circular">
+            <ChatOutlined />
+          </Badge>
         </Fab>
       </Tooltip>
       <Dialog
@@ -110,6 +200,15 @@ export default function SupportChatWidget({
       >
         <DialogTitle id="support-chat-widget-title">
           Chat with EventHub support
+          {isCustomer && (
+            <Button
+              size="small"
+              onClick={toggleSound}
+              sx={{ display: "block", mt: 0.5, textTransform: "none" }}
+            >
+              Sound notifications: {soundEnabled ? "On" : "Off"}
+            </Button>
+          )}
         </DialogTitle>
         <DialogContent dividers>
           {!user ? (
@@ -138,7 +237,12 @@ export default function SupportChatWidget({
             </Typography>
           ) : (
             <>
-              <Stack spacing={1.5} sx={{ minHeight: 180, maxHeight: 360, overflowY: "auto", py: 1 }}>
+              {notification && open && (
+                <Alert severity="info" onClose={() => setNotification("")}>
+                  {notification}
+                </Alert>
+              )}
+              <Stack ref={messagesRef} spacing={1.5} sx={{ minHeight: 180, maxHeight: 360, overflowY: "auto", py: 1 }}>
                 {loading && messages.length === 0 && (
                   <Typography color="text.secondary">Loading conversation…</Typography>
                 )}
@@ -194,6 +298,25 @@ export default function SupportChatWidget({
           <Button onClick={() => setOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+      <Snackbar
+        open={Boolean(notification) && !open}
+        autoHideDuration={5000}
+        onClose={() => setNotification("")}
+        message={notification}
+        action={
+          <Button
+            color="inherit"
+            size="small"
+            onClick={() => {
+              setOpen(true);
+              setUnreadCount(0);
+              setNotification("");
+            }}
+          >
+            View
+          </Button>
+        }
+      />
     </>
   );
 }

@@ -142,6 +142,7 @@ type ScheduledFunction = {
 type EventRequestPageProps = {
   api: (path: string, options?: any) => Promise<any>;
   initialProviderId?: number;
+  eventId?: number;
   onBrowse: () => void;
 };
 
@@ -507,10 +508,13 @@ function formatDate(value: string) {
 export default function EventRequestPage({
   api,
   initialProviderId,
+  eventId,
   onBrowse,
 }: EventRequestPageProps) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [events, setEvents] = useState<any[]>([]);
+  const [editingEvent, setEditingEvent] = useState<any>(null);
+  const [editForm, setEditForm] = useState<any>(null);
   const [eventCategory, setEventCategory] = useState<EventCategory>("Personal & family");
   const [eventType, setEventType] = useState("Wedding");
   const [customEventType, setCustomEventType] = useState("");
@@ -545,6 +549,24 @@ export default function EventRequestPage({
         if (!active) return;
         setProviders(providerRows);
         setEvents(eventRows);
+        if (eventId) {
+          const event = eventRows.find((item: any) => item.id === eventId);
+          if (!event) {
+            setError("This event plan could not be found.");
+            return;
+          }
+          setEditingEvent(event);
+          setEditForm({
+            event_type: event.event_type,
+            city: event.city,
+            state: event.state,
+            event_date: event.event_date,
+            guests: String(event.guests),
+            budget: String(event.budget ?? 0),
+            services: (event.services || []).join(", "),
+            details: event.details || "",
+          });
+        }
         const initialProvider = providerRows.find((provider: Provider) => provider.id === initialProviderId);
         if (initialProvider) {
           setState(initialProvider.state);
@@ -560,7 +582,7 @@ export default function EventRequestPage({
     return () => {
       active = false;
     };
-  }, [api]);
+  }, [api, eventId, initialProviderId]);
 
   const availableCities = state ? indiaLocations[state] || [] : [];
   const eventTypes = eventCategories[eventCategory];
@@ -878,6 +900,131 @@ export default function EventRequestPage({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function saveEventChanges(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!eventId || !editForm) return;
+    setError("");
+    setSuccess("");
+    setSubmitting(true);
+    try {
+      await api(`/customer/events/${eventId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          ...editForm,
+          guests: Number(editForm.guests),
+          budget: Number(editForm.budget || 0),
+          services: editForm.services
+            .split(",")
+            .map((service: string) => service.trim())
+            .filter(Boolean),
+        }),
+      });
+      setEvents(await api("/customer/events"));
+      setSuccess("Your event plan was updated.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to update your event plan.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (eventId) {
+    return (
+      <Box component="main" className="event-planning-page">
+        <Box className="event-planning-hero">
+          <Stack spacing={1} className="event-planning-hero-copy">
+            <Typography variant="overline" className="event-planning-eyebrow">YOUR EVENT PLAN</Typography>
+            <Typography variant="h3">Edit event plan</Typography>
+            <Typography>Update the event details and services sent to your selected providers.</Typography>
+          </Stack>
+        </Box>
+        {error && <Alert severity="error" className="event-planning-alert">{error}</Alert>}
+        {success && <Alert severity="success" className="event-planning-alert">{success}</Alert>}
+        {loading || !editForm ? (
+          <Typography>{error || "Loading your event plan..."}</Typography>
+        ) : (
+          <Paper component="form" onSubmit={saveEventChanges} elevation={0} className="event-planning-form">
+            <Stack spacing={2}>
+              <TextField
+                label="Event type"
+                required
+                value={editForm.event_type}
+                onChange={(event) => setEditForm({ ...editForm, event_type: event.target.value })}
+              />
+              <TextField
+                label="State"
+                required
+                value={editForm.state}
+                onChange={(event) => setEditForm({ ...editForm, state: event.target.value })}
+              />
+              <TextField
+                label="City"
+                required
+                value={editForm.city}
+                onChange={(event) => setEditForm({ ...editForm, city: event.target.value })}
+              />
+              <TextField
+                label="Event date"
+                type="date"
+                required
+                value={editForm.event_date}
+                onChange={(event) => setEditForm({ ...editForm, event_date: event.target.value })}
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+              <TextField
+                label="Number of guests"
+                type="number"
+                required
+                inputProps={{ min: 1, max: 100000 }}
+                value={editForm.guests}
+                onChange={(event) => setEditForm({ ...editForm, guests: event.target.value })}
+              />
+              <TextField
+                label="Budget (₹)"
+                type="number"
+                inputProps={{ min: 0, step: 1 }}
+                value={editForm.budget}
+                onChange={(event) => setEditForm({ ...editForm, budget: event.target.value })}
+              />
+              <TextField
+                label="Requested services"
+                value={editForm.services}
+                onChange={(event) => setEditForm({ ...editForm, services: event.target.value })}
+                helperText="Separate services with commas."
+              />
+              <TextField
+                label="Event schedule, venue, and additional details"
+                multiline
+                minRows={5}
+                maxRows={12}
+                inputProps={{ maxLength: 4000 }}
+                value={editForm.details}
+                onChange={(event) => setEditForm({ ...editForm, details: event.target.value })}
+              />
+              <Box>
+                <Typography variant="subtitle2">Providers already receiving this plan</Typography>
+                {editingEvent?.providers?.length ? editingEvent.providers.map((provider: any) => (
+                  <Typography key={provider.provider_id} variant="body2">
+                    {provider.business_name} · {provider.quote ? `Quote ${provider.quote.status}` : provider.status}
+                  </Typography>
+                )) : <Typography variant="body2">No provider requests are linked to this plan.</Typography>}
+                <Typography variant="caption" color="text.secondary">
+                  Editing keeps the current provider recipients and their quote responses.
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} flexWrap="wrap">
+                <Button type="submit" variant="contained" disabled={submitting}>
+                  {submitting ? "Saving..." : "Save event plan"}
+                </Button>
+                <Button type="button" onClick={onBrowse}>Back to my planner</Button>
+              </Stack>
+            </Stack>
+          </Paper>
+        )}
+      </Box>
+    );
   }
 
   return (
@@ -1337,9 +1484,24 @@ export default function EventRequestPage({
                 {item.details && <Typography sx={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{item.details}</Typography>}
                 <Stack spacing={0.5} sx={{ mt: 1 }}>
                   {item.providers.map((provider: any) => (
-                    <Typography key={provider.provider_id} variant="body2">
-                      {provider.business_name}: {provider.quote ? `Quote ₹${provider.quote.amount} (${provider.quote.status})` : provider.status}
-                    </Typography>
+                    <Box key={provider.provider_id} className="event-provider-quote-response">
+                      <Typography variant="body2">
+                        <strong>{provider.business_name}:</strong> {provider.quote
+                          ? `Total ₹${Number(provider.quote.amount).toLocaleString("en-IN")} (${provider.quote.status})`
+                          : provider.status}
+                      </Typography>
+                      {provider.quote?.service_items?.length > 0 && (
+                        <ul>
+                          {provider.quote.service_items.map((quoteItem: any, index: number) => (
+                            <li key={`${quoteItem.service}-${index}`}>
+                              <span>{quoteItem.service}</span>
+                              <span>₹{Number(quoteItem.amount).toLocaleString("en-IN")}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {provider.quote?.notes && <Typography variant="body2">{provider.quote.notes}</Typography>}
+                    </Box>
                   ))}
                 </Stack>
               </Paper>

@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../../api/client";
+import {
+  isChatSoundEnabled,
+  playChatNotification,
+  setChatSoundEnabled,
+} from "../../chatNotifications";
 import {
   eventCategories,
   eventCategoryNames,
@@ -47,6 +52,9 @@ export default function ProviderDashboard({
   const [tab, setTab] = useState(initialTab);
   const [enquiries, setEnquiries] = useState<any[]>([]);
   const [customerMessages, setCustomerMessages] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notificationNotice, setNotificationNotice] = useState("");
+  const [soundEnabled, setSoundEnabled] = useState(isChatSoundEnabled);
   const [bookings, setBookings] = useState<any[]>([]);
   const [form, setForm] = useState<any>({});
   const [offerings, setOfferings] = useState<Offering[]>([]);
@@ -54,32 +62,153 @@ export default function ProviderDashboard({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const notificationsInitialized = useRef(false);
+  const lastNotificationId = useRef(0);
+
+  const updateProviderNotifications = useCallback((nextNotifications: any[]) => {
+    const incoming = nextNotifications.filter(
+      (item: { id: number }) => item.id > lastNotificationId.current,
+    );
+    if (notificationsInitialized.current && incoming.length > 0) {
+      setNotificationNotice(
+        incoming.length === 1
+          ? incoming[0].notification_type === "SHORTLIST"
+            ? `${incoming[0].customer_name} added your profile to their shortlist.`
+            : `${incoming[0].customer_name} sent you an event plan.`
+          : `You have ${incoming.length} new customer notifications.`,
+      );
+      playChatNotification();
+    }
+    lastNotificationId.current = nextNotifications.reduce(
+      (highest: number, item: { id: number }) => Math.max(highest, item.id),
+      lastNotificationId.current,
+    );
+    notificationsInitialized.current = true;
+    setNotifications(nextNotifications);
+  }, []);
 
   const load = useCallback(async () => {
     setError("");
     try {
-      const [nextEnquiries, nextMessages, nextBookings, profile, nextOfferings] = await Promise.all([
+      const [nextEnquiries, nextMessages, nextBookings, profile, nextOfferings, nextNotifications] = await Promise.all([
         api("/provider/enquiries"),
         api("/provider/messages"),
         api("/provider/bookings"),
         api("/provider/profile"),
         api("/provider/offerings"),
+        api("/provider/notifications"),
       ]);
       setEnquiries(nextEnquiries);
       setCustomerMessages(nextMessages);
       setBookings(nextBookings);
       setForm(profile);
       setOfferings(nextOfferings);
+      updateProviderNotifications(nextNotifications);
     } catch (cause: any) {
       setError(cause.message || "Unable to load provider dashboard.");
     } finally {
       setLoading(false);
     }
+  }, [updateProviderNotifications]);
+
+  const refreshNotifications = useCallback(async () => {
+    const nextNotifications = await api("/provider/notifications");
+    updateProviderNotifications(nextNotifications);
+  }, [updateProviderNotifications]);
+
+  const refreshEnquiries = useCallback(async () => {
+    const nextEnquiries = await api("/provider/enquiries");
+    setEnquiries(nextEnquiries);
+  }, []);
+
+  const loadCustomerMessages = useCallback(async () => {
+    const nextMessages = await api("/provider/messages");
+    setCustomerMessages(nextMessages);
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (tab !== "messages" || loading) return;
+
+    const refreshMessages = () => {
+      loadCustomerMessages().catch((cause: any) => {
+        setError(cause.message || "Unable to refresh customer messages.");
+      });
+    };
+
+    refreshMessages();
+    const interval = window.setInterval(refreshMessages, 5000);
+    return () => window.clearInterval(interval);
+  }, [loadCustomerMessages, loading, tab]);
+
+  useEffect(() => {
+    if (loading) return;
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      refreshNotifications().catch((cause: any) => {
+        setError(cause.message || "Unable to refresh provider notifications.");
+      });
+    };
+
+    const interval = window.setInterval(refreshWhenVisible, 5000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [loading, refreshNotifications]);
+
+  useEffect(() => {
+    if (tab !== "enquiries" || loading) return;
+
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      refreshEnquiries().catch((cause: any) => {
+        setError(cause.message || "Unable to refresh provider enquiries.");
+      });
+    };
+
+    refresh();
+    const interval = window.setInterval(refresh, 5000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loading, refreshEnquiries, tab]);
+
+  async function markNotificationRead(notificationId: number) {
+    setError("");
+    try {
+      await api(`/provider/notifications/${notificationId}/read`, {
+        method: "PATCH",
+      });
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === notificationId
+            ? { ...item, read_at: new Date().toISOString() }
+            : item,
+        ),
+      );
+    } catch (cause: any) {
+      setError(cause.message || "Unable to mark notification as read.");
+    }
+  }
+
+  function toggleNotificationSound() {
+    const enabled = !soundEnabled;
+    setChatSoundEnabled(enabled);
+    setSoundEnabled(enabled);
+    if (enabled) playChatNotification();
+  }
+
+  const unreadNotificationCount = notifications.filter(
+    (item) => !item.read_at,
+  ).length;
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -164,14 +293,20 @@ export default function ProviderDashboard({
         )}
       </header>
       <div className="tabs provider-dashboard-tabs" aria-label="Provider dashboard sections">
-        {["enquiries", "messages", "bookings", "offerings", "profile", "availability"].map((item) => (
+        {["enquiries", "messages", "notifications", "bookings", "offerings", "profile", "availability"].map((item) => (
           <button
             key={item}
             onClick={() => setTab(item)}
             className={tab === item ? "active" : ""}
             aria-current={tab === item ? "page" : undefined}
           >
-            {item === "profile" ? "Edit profile" : item === "offerings" ? "Services & menu" : item[0].toUpperCase() + item.slice(1)}
+            {item === "profile"
+              ? "Edit profile"
+              : item === "offerings"
+                ? "Services & menu"
+                : item === "notifications"
+                  ? `Notifications${unreadNotificationCount ? ` (${unreadNotificationCount})` : ""}`
+                  : item[0].toUpperCase() + item.slice(1)}
           </button>
         ))}
       </div>
@@ -184,55 +319,131 @@ export default function ProviderDashboard({
         <p>Loading provider dashboard...</p>
       ) : (
         <>
+          {notificationNotice && (
+            <p className="provider-notification-notice" role="status">
+              {notificationNotice}
+            </p>
+          )}
           {tab === "enquiries" && (
             <div className="list">
               {enquiries.length === 0 ? (
-                <div className="card">No enquiries yet.</div>
+                <div className="card provider-enquiries-empty">
+                  <strong>No customer requests are assigned to this provider account yet.</strong>
+                  <p>New event plans from customers appear here. Open Notifications to check incoming requests, then return here to prepare and send a service-by-service quote.</p>
+                </div>
               ) : (
                 enquiries.map((request) => (
-                  <div className="card row" key={request.id}>
-                    <div>
-                      <b>
-                        {request.event_type} · {request.city}
-                        {request.state ? `, ${request.state}` : ""}
-                      </b>
-                      <p>
-                        {request.event_date} · {request.guests} guests · Budget{" "}
-                        {request.budget ? `₹${request.budget}` : "Not provided"}
-                      </p>
-                      {request.services?.length > 0 && (
-                        <p>Services requested: {request.services.join(", ")}</p>
-                      )}
-                      {tab === "messages" && (
-                        <div className="list provider-inbox">
-                          {customerMessages.length === 0 ? (
-                            <div className="card">No custom messages yet. Messages from customers will appear here.</div>
-                          ) : (
-                            customerMessages.map((item) => (
-                              <article className="card provider-inbox-message" key={item.id}>
-                                <div className="provider-inbox-message-heading">
-                                  <strong>{item.customer_name}</strong>
-                                  <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
-                                </div>
-                                <p>{item.message}</p>
-                              </article>
-                            ))
-                          )}
-                        </div>
-                      )}
-                      {request.details && <p>{request.details}</p>}
+                  <article className="card provider-event-enquiry" key={request.id}>
+                    <div className="provider-event-enquiry-heading">
+                      <div>
+                        <span className="provider-dashboard-eyebrow">EVENT PLAN FROM {request.customer_name}</span>
+                        <h2>{request.event_type}</h2>
+                        <p>{[request.city, request.state].filter(Boolean).join(", ")} · {request.event_date}</p>
+                      </div>
+                      <span className="badge">{request.status}</span>
                     </div>
-                    {request.quote ? (
-                      <span className="badge">
-                        {request.quote.status} ₹{request.quote.amount}
-                      </span>
-                    ) : (
-                      <Quote requestId={request.id} onDone={() => void load()} />
+                    <div className="provider-event-enquiry-facts">
+                      <span><strong>Guests</strong>{Number(request.guests).toLocaleString("en-IN")}</span>
+                      <span><strong>Customer budget</strong>{request.budget ? `₹${Number(request.budget).toLocaleString("en-IN")}` : "Not provided"}</span>
+                      <span><strong>Services requested</strong>{request.services?.length ? request.services.join(", ") : "No specific services"}</span>
+                    </div>
+                    {request.details && (
+                      <div className="provider-event-enquiry-details">
+                        <strong>Schedule and notes from customer</strong>
+                        <p>{request.details}</p>
+                      </div>
                     )}
-                  </div>
+                    {request.quote ? (
+                      <div className="provider-event-quote-summary">
+                        <strong>Your total quote: ₹{Number(request.quote.amount).toLocaleString("en-IN")}</strong>
+                        {request.quote.service_items?.length > 0 && (
+                          <ul className="provider-quote-items">
+                            {request.quote.service_items.map((item: any, index: number) => (
+                              <li key={`${item.service}-${index}`}>
+                                <span>{item.service}</span>
+                                <strong>₹{Number(item.amount).toLocaleString("en-IN")}</strong>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {request.quote.notes && <p>{request.quote.notes}</p>}
+                      </div>
+                    ) : (
+                      <Quote requestId={request.id} services={request.services || []} onDone={() => void load()} />
+                    )}
+                  </article>
                 ))
               )}
             </div>
+          )}
+          {tab === "messages" && (
+            <section className="list provider-inbox" aria-label="Customer messages">
+              {customerMessages.length === 0 ? (
+                <div className="card">No custom messages yet. Messages from customers will appear here.</div>
+              ) : (
+                customerMessages.map((item) => (
+                  <article className="card provider-inbox-message" key={item.id}>
+                    <div className="provider-inbox-message-heading">
+                      <strong>{item.customer_name}</strong>
+                      <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
+                    </div>
+                    <p>{item.message}</p>
+                  </article>
+                ))
+              )}
+            </section>
+          )}
+          {tab === "notifications" && (
+            <section className="list provider-inbox" aria-label="Provider notifications">
+              <div className="provider-notifications-heading">
+                <div>
+                  <h2>Customer activity</h2>
+                  <p>New shortlists and event plans appear here automatically.</p>
+                </div>
+                <button type="button" onClick={toggleNotificationSound}>
+                  Sound {soundEnabled ? "on" : "off"}
+                </button>
+              </div>
+              {notifications.length === 0 ? (
+                <div className="card">No customer notifications yet.</div>
+              ) : (
+                notifications.map((item) => (
+                  <article
+                    className={`card provider-notification-card${item.read_at ? "" : " unread"}`}
+                    key={item.id}
+                  >
+                    <div className="provider-inbox-message-heading">
+                      <strong>{item.notification_type === "SHORTLIST" ? "Profile shortlisted" : "New event plan"}</strong>
+                      <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
+                    </div>
+                    <p>
+                      {item.notification_type === "SHORTLIST"
+                        ? `${item.customer_name} added your profile to their shortlist.`
+                        : `${item.customer_name} sent a ${item.event_type || "new"} event plan${item.city ? ` for ${item.city}${item.state ? `, ${item.state}` : ""}` : ""}${item.event_date ? ` on ${item.event_date}` : ""}.`}
+                    </p>
+                    {item.notification_type === "EVENT_PLAN" && (
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => {
+                          setTab("enquiries");
+                          if (!item.read_at) {
+                            void markNotificationRead(item.id);
+                          }
+                        }}
+                      >
+                        View enquiry and reply with a quote
+                      </button>
+                    )}
+                    {!item.read_at && (
+                      <button type="button" onClick={() => void markNotificationRead(item.id)}>
+                        Mark as read
+                      </button>
+                    )}
+                  </article>
+                ))
+              )}
+            </section>
           )}
           {tab === "bookings" && (
             <div className="list">
@@ -569,39 +780,121 @@ export default function ProviderDashboard({
 
 function Quote({
   requestId,
+  services,
   onDone,
 }: {
   requestId: number;
+  services: string[];
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState(0);
+  const [serviceItems, setServiceItems] = useState(
+    () => (services.length ? services : [""]).map((service) => ({ service, amount: "" })),
+  );
   const [notes, setNotes] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const total = serviceItems.reduce((sum, item) => {
+    const amount = Number(item.amount);
+    return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0);
+  }, 0);
+  const allItemsPriced = serviceItems.length > 0 && serviceItems.every(
+    (item) => item.service.trim() && Number.isFinite(Number(item.amount)) && Number(item.amount) > 0,
+  );
 
   async function submit() {
-    await api(`/quote-requests/${requestId}/quote`, {
-      method: "POST",
-      body: JSON.stringify({ amount, unit: "event", notes }),
-    });
-    setOpen(false);
-    onDone();
+    setError("");
+    setSubmitting(true);
+    try {
+      await api(`/quote-requests/${requestId}/quote`, {
+        method: "POST",
+        body: JSON.stringify({
+          amount: Number(total.toFixed(2)),
+          unit: "event",
+          notes,
+          service_items: serviceItems.map((item) => ({
+            service: item.service.trim(),
+            amount: Number(item.amount),
+          })),
+        }),
+      });
+      setOpen(false);
+      onDone();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to submit your quote.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return open ? (
-    <div className="quote">
-      <input
-        type="number"
-        placeholder="Amount"
-        onChange={(event) => setAmount(Number(event.target.value))}
-      />
-      <input
-        placeholder="Notes"
-        onChange={(event) => setNotes(event.target.value)}
-      />
-      <button onClick={submit}>Submit</button>
+    <div className="provider-quote-form">
+      <strong>Price each service for this event</strong>
+      <div className="provider-quote-item-list">
+        {serviceItems.map((item, index) => (
+          <div className="provider-quote-item-row" key={index}>
+            <label>
+              Service
+              <input
+                maxLength={120}
+                required
+                value={item.service}
+                placeholder="e.g. Catering"
+                onChange={(event) => setServiceItems((current) => current.map((entry, itemIndex) =>
+                  itemIndex === index ? { ...entry, service: event.target.value } : entry,
+                ))}
+              />
+            </label>
+            <label>
+              Price (₹)
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={item.amount}
+                onChange={(event) => setServiceItems((current) => current.map((entry, itemIndex) =>
+                  itemIndex === index ? { ...entry, amount: event.target.value } : entry,
+                ))}
+              />
+            </label>
+            {serviceItems.length > 1 && (
+              <button
+                type="button"
+                aria-label={`Remove ${item.service || `service ${index + 1}`}`}
+                onClick={() => setServiceItems((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+              >Remove</button>
+            )}
+          </div>
+        ))}
+        <button type="button" onClick={() => setServiceItems((current) => [...current, { service: "", amount: "" }])}>
+          Add another service
+        </button>
+      </div>
+      <div className="provider-quote-total">
+        <span>Total for all services</span>
+        <strong>₹{total.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+      </div>
+      <label>
+        Notes for the customer (optional)
+        <textarea
+          rows={3}
+          maxLength={2000}
+          value={notes}
+          placeholder="Describe what's included, exclusions, or payment terms."
+          onChange={(event) => setNotes(event.target.value)}
+        />
+      </label>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="shortlist-actions">
+        <button type="button" className="primary" disabled={submitting || !allItemsPriced} onClick={() => void submit()}>
+          {submitting ? "Sending..." : "Send quote to customer"}
+        </button>
+        <button type="button" disabled={submitting} onClick={() => setOpen(false)}>Cancel</button>
+      </div>
     </div>
   ) : (
-    <button onClick={() => setOpen(true)}>Submit quote</button>
+    <button type="button" className="primary" onClick={() => setOpen(true)}>Prepare quote for customer</button>
   );
 }
 
