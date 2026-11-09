@@ -188,6 +188,15 @@ class QuoteRequest(Base):
     status: Mapped[str] = mapped_column(String(30), default="PENDING")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+class QuoteNegotiationMessage(Base):
+    __tablename__="quote_negotiation_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("quote_requests.id"), index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    proposed_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class Quote(Base):
     __tablename__="quotes"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -492,6 +501,17 @@ class QuoteIn(BaseModel):
     notes:str=Field(default="",max_length=2000)
     service_items:list[QuoteServiceItemIn]=Field(default_factory=list,max_length=30)
     valid_until:date|None=None
+class QuoteNegotiationMessageIn(BaseModel):
+    message:str=Field(min_length=1,max_length=2000)
+    proposed_amount:float|None=Field(default=None,gt=0,allow_inf_nan=False)
+
+    @field_validator("message")
+    @classmethod
+    def validate_negotiation_message(cls,value):
+        message=value.strip()
+        if not message:
+            raise ValueError("Message cannot be blank")
+        return message
 class ReviewIn(BaseModel):
     rating:float=Field(ge=1,le=5); quality:float=Field(ge=1,le=5); professionalism:float=Field(ge=1,le=5)
     communication:float=Field(ge=1,le=5); value:float=Field(ge=1,le=5); timeliness:float=Field(ge=1,le=5); comment:str=""
@@ -1211,8 +1231,18 @@ def send_provider_message(pid:int,x:ProviderMessageIn,u=Depends(current_user),s:
         raise HTTPException(404,"Provider not found")
     if p.user_id==u.id:
         raise HTTPException(400,"You cannot message your own provider profile")
-    message=ProviderMessage(provider_id=p.id,customer_id=u.id,message=x.message)
+    message=SupportMessage(
+        customer_id=u.id,
+        provider_id=p.id,
+        sender_id=u.id,
+        message=x.message,
+    )
     s.add(message)
+    s.add(ProviderNotification(
+        provider_id=p.id,
+        customer_id=u.id,
+        notification_type="CUSTOMER_MESSAGE",
+    ))
     s.commit()
     s.refresh(message)
     return {"id":message.id,"message":"Your message was sent to the provider."}
@@ -1240,8 +1270,23 @@ def customer_support_messages(provider_id:int|None=None,u=Depends(current_user),
         query=query.filter(SupportMessage.provider_id.is_(None))
     else:
         query=query.filter(SupportMessage.provider_id==provider_id)
-    rows=query.order_by(SupportMessage.created_at.asc(),SupportMessage.id.asc()).all()
-    return [support_message_json(message,s) for message in rows]
+    messages=[support_message_json(message,s) for message in query.all()]
+    if provider_id is not None:
+        legacy_rows=s.query(ProviderMessage).filter_by(
+            provider_id=provider_id,
+            customer_id=u.id,
+        ).all()
+        messages.extend({
+            "id":f"legacy-provider-{message.id}",
+            "customer_id":message.customer_id,
+            "provider_id":message.provider_id,
+            "sender_id":message.customer_id,
+            "sender_name":u.name,
+            "sender_role":u.role,
+            "message":message.message,
+            "created_at":message.created_at.isoformat(),
+        } for message in legacy_rows)
+    return sorted(messages,key=lambda message:(message["created_at"],str(message["id"])))
 
 @app.post("/api/v1/support/messages")
 def send_customer_support_message(x:SupportMessageIn,u=Depends(current_user),s:Session=Depends(db)):
@@ -1260,42 +1305,258 @@ def send_customer_support_message(x:SupportMessageIn,u=Depends(current_user),s:S
     return support_message_json(message,s)
 
 @app.get("/api/v1/provider/messages")
-def provider_messages(u=Depends(current_user),s:Session=Depends(db)):
+def provider_messages(
+    customer_id:int|None=None,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
     if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
         raise HTTPException(403,"Provider role required")
     p=s.query(Provider).filter_by(user_id=u.id).first()
     if not p:
         raise HTTPException(404,"Provider profile not found")
-    rows=s.query(ProviderMessage,User).join(User,ProviderMessage.customer_id==User.id).filter(
+    if customer_id is not None:
+        customer=s.query(User).filter_by(id=customer_id,active=True).first()
+        has_direct_history=s.query(SupportMessage.id).filter_by(
+            provider_id=p.id,
+            customer_id=customer_id,
+        ).first() or s.query(ProviderMessage.id).filter_by(
+            provider_id=p.id,
+            customer_id=customer_id,
+        ).first()
+        has_assigned_request=s.query(QuoteRequest.id).filter_by(
+            provider_id=p.id,
+            customer_id=customer_id,
+        ).first()
+        if not customer or not (has_direct_history or has_assigned_request):
+            raise HTTPException(404,"Customer conversation not found")
+
+    support_query=s.query(SupportMessage,User).join(
+        User,SupportMessage.customer_id==User.id
+    ).filter(
+        SupportMessage.provider_id==p.id,
+        User.active.is_(True),
+    )
+    legacy_query=s.query(ProviderMessage,User).join(
+        User,ProviderMessage.customer_id==User.id
+    ).filter(
         ProviderMessage.provider_id==p.id,
         User.active.is_(True),
-    ).order_by(ProviderMessage.created_at.desc(),ProviderMessage.id.desc()).all()
-    return [{
-        "id":message.id,
+    )
+    if customer_id is not None:
+        support_query=support_query.filter(SupportMessage.customer_id==customer_id)
+        legacy_query=legacy_query.filter(ProviderMessage.customer_id==customer_id)
+
+    messages=[]
+    for message,customer in support_query.all():
+        sender=s.get(User,message.sender_id)
+        messages.append({
+            "id":message.id,
+            "customer_id":message.customer_id,
+            "customer_name":customer.name,
+            "sender_id":message.sender_id,
+            "sender_name":sender.name if sender else "Unavailable account",
+            "sender_role":sender.role if sender else "UNKNOWN",
+            "message":message.message,
+            "created_at":message.created_at.isoformat(),
+        })
+    messages.extend({
+        "id":f"legacy-provider-{message.id}",
+        "customer_id":message.customer_id,
         "customer_name":customer.name,
+        "sender_id":message.customer_id,
+        "sender_name":customer.name,
+        "sender_role":customer.role,
         "message":message.message,
         "created_at":message.created_at.isoformat(),
-    } for message,customer in rows]
+    } for message,customer in legacy_query.all())
+    return sorted(messages,key=lambda message:(message["created_at"],str(message["id"])))
+
+@app.post("/api/v1/provider/messages/{customer_id}")
+def reply_to_provider_customer(
+    customer_id:int,
+    x:ProviderMessageIn,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p:
+        raise HTTPException(404,"Provider profile not found")
+    customer=s.query(User).filter_by(id=customer_id,active=True).first()
+    has_direct_history=s.query(SupportMessage.id).filter_by(
+        provider_id=p.id,
+        customer_id=customer_id,
+    ).first() or s.query(ProviderMessage.id).filter_by(
+        provider_id=p.id,
+        customer_id=customer_id,
+    ).first()
+    has_assigned_request=s.query(QuoteRequest.id).filter_by(
+        provider_id=p.id,
+        customer_id=customer_id,
+    ).first()
+    if not customer or not (has_direct_history or has_assigned_request):
+        raise HTTPException(404,"Customer conversation not found")
+    message=SupportMessage(
+        customer_id=customer_id,
+        provider_id=p.id,
+        sender_id=u.id,
+        message=x.message,
+    )
+    s.add(message)
+    s.commit()
+    s.refresh(message)
+    return support_message_json(message,s)
 
 @app.get("/api/v1/provider/enquiries")
 def enquiries(u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
     p=s.query(Provider).filter_by(user_id=u.id).first()
     if not p: raise HTTPException(404,"Provider profile not found")
     rs=s.query(QuoteRequest).filter_by(provider_id=p.id).order_by(QuoteRequest.created_at.desc()).all()
     out=[]
     for r in rs:
-        e=s.get(Event,r.event_id); q=s.query(Quote).filter_by(request_id=r.id).first()
+        e=s.get(Event,r.event_id)
+        q=s.query(Quote).filter_by(request_id=r.id).order_by(Quote.created_at.desc(),Quote.id.desc()).first()
+        quote_history=s.query(Quote).filter_by(request_id=r.id).order_by(Quote.created_at.asc(),Quote.id.asc()).all()
         requirements=s.query(Requirement).filter_by(event_id=e.id).all()
         customer=s.get(User,r.customer_id)
-        out.append({"id":r.id,"event_id":r.event_id,"customer_name":customer.name if customer else "Customer",
+        if not customer or not customer.active:
+            continue
+        out.append({"id":r.id,"event_id":r.event_id,"customer_id":customer.id,"customer_name":customer.name,
                     "event_type":e.event_type,"city":e.city,"state":e.state,"event_date":str(e.event_date),
                     "guests":e.guests,"budget":e.budget,"details":r.details,
                     "services":[item.service_name for item in requirements],"status":r.status,
+                    "created_at":r.created_at.isoformat(),
+                    "quote_history":[quote_json(item) for item in quote_history],
                     "quote":None if not q else {
                         "id":q.id,"amount":q.amount,"unit":q.unit,"notes":q.notes,"status":q.status,
                         "service_items":json.loads(q.service_items or "[]"),
                     }})
     return out
+
+def quote_json(quote:Quote):
+    return {
+        "id":quote.id,
+        "amount":quote.amount,
+        "unit":quote.unit,
+        "notes":quote.notes,
+        "status":quote.status,
+        "service_items":json.loads(quote.service_items or "[]"),
+        "created_at":quote.created_at.isoformat(),
+    }
+
+def authorized_quote_request(request_id:int,u:User,s:Session):
+    request=s.get(QuoteRequest,request_id)
+    if not request:
+        raise HTTPException(404,"Event request not found")
+    if u.id==request.customer_id:
+        return request
+    provider=s.query(Provider).filter_by(user_id=u.id).first()
+    if provider and provider.id==request.provider_id:
+        return request
+    raise HTTPException(404,"Event request not found")
+
+def quote_conversation_json(request:QuoteRequest,s:Session):
+    rows=s.query(QuoteNegotiationMessage,User).join(
+        User,QuoteNegotiationMessage.sender_id==User.id
+    ).filter(
+        QuoteNegotiationMessage.request_id==request.id
+    ).order_by(
+        QuoteNegotiationMessage.created_at.asc(),
+        QuoteNegotiationMessage.id.asc(),
+    ).all()
+    quotes=s.query(Quote).filter_by(request_id=request.id).order_by(
+        Quote.created_at.asc(),Quote.id.asc()
+    ).all()
+    return {
+        "request_id":request.id,
+        "status":request.status,
+        "messages":[{
+            "id":message.id,
+            "sender_id":message.sender_id,
+            "sender_name":sender.name,
+            "sender_role":sender.role,
+            "sender_side":"CUSTOMER" if message.sender_id==request.customer_id else "PROVIDER",
+            "message":message.message,
+            "proposed_amount":message.proposed_amount,
+            "created_at":message.created_at.isoformat(),
+        } for message,sender in rows],
+        "quotes":[quote_json(quote) for quote in quotes],
+    }
+
+@app.get("/api/v1/quote-requests/{rid}/conversation")
+def get_quote_conversation(rid:int,u=Depends(current_user),s:Session=Depends(db)):
+    request=authorized_quote_request(rid,u,s)
+    return quote_conversation_json(request,s)
+
+@app.post("/api/v1/quote-requests/{rid}/conversation")
+def send_quote_conversation_message(
+    rid:int,
+    x:QuoteNegotiationMessageIn,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    request=authorized_quote_request(rid,u,s)
+    if request.status=="ACCEPTED":
+        raise HTTPException(409,"This quote has been finalized; the conversation is read-only.")
+    if x.proposed_amount is not None and u.id!=request.customer_id:
+        raise HTTPException(403,"Only the customer can send a target price.")
+    message=QuoteNegotiationMessage(
+        request_id=request.id,
+        sender_id=u.id,
+        message=x.message,
+        proposed_amount=x.proposed_amount,
+    )
+    request.status="NEGOTIATING"
+    s.add(message)
+    if u.id==request.customer_id:
+        s.add(ProviderNotification(
+            provider_id=request.provider_id,
+            customer_id=request.customer_id,
+            event_id=request.event_id,
+            notification_type="CUSTOMER_MESSAGE",
+        ))
+    s.commit()
+    s.refresh(message)
+    return {"id":message.id,"status":request.status}
+
+@app.post("/api/v1/quote-requests/{rid}/accept")
+def accept_quote(rid:int,u=Depends(current_user),s:Session=Depends(db)):
+    require_customer(u)
+    request=s.query(QuoteRequest).filter_by(id=rid,customer_id=u.id).first()
+    if not request:
+        raise HTTPException(404,"Event request not found")
+    if request.status=="ACCEPTED":
+        existing=s.query(Booking).filter_by(quote_id=(
+            s.query(Quote.id).filter_by(request_id=request.id).order_by(
+                Quote.created_at.desc(),Quote.id.desc()
+            ).limit(1).scalar_subquery()
+        )).first()
+        return {"status":"ACCEPTED","booking_id":existing.id if existing else None}
+    quote=s.query(Quote).filter_by(request_id=request.id).order_by(
+        Quote.created_at.desc(),Quote.id.desc()
+    ).first()
+    if not quote:
+        raise HTTPException(409,"The provider has not sent a quote yet.")
+    if quote.status not in {"OFFERED","SUBMITTED"}:
+        raise HTTPException(409,"Only the latest active quote can be accepted.")
+    quote.status="ACCEPTED"
+    request.status="ACCEPTED"
+    booking=Booking(
+        event_id=request.event_id,
+        quote_id=quote.id,
+        customer_id=u.id,
+        provider_id=request.provider_id,
+        amount=quote.amount,
+        status="CONFIRMED",
+    )
+    s.add(booking)
+    s.commit()
+    s.refresh(booking)
+    return {"status":request.status,"booking_id":booking.id}
 
 @app.post("/api/v1/customer/events")
 def create_customer_event(x:EventRequestIn,u=Depends(current_user),s:Session=Depends(db)):
@@ -1372,8 +1633,12 @@ def customer_events(u=Depends(current_user),s:Session=Depends(db)):
         provider_responses=[]
         for request in requests:
             provider=s.get(Provider,request.provider_id)
-            quote=s.query(Quote).filter_by(request_id=request.id).first()
+            quotes=s.query(Quote).filter_by(request_id=request.id).order_by(
+                Quote.created_at.asc(),Quote.id.asc()
+            ).all()
+            quote=quotes[-1] if quotes else None
             provider_responses.append({
+                "request_id":request.id,
                 "provider_id":request.provider_id,
                 "business_name":provider.business_name if provider else "Provider unavailable",
                 "status":request.status,
@@ -1384,6 +1649,7 @@ def customer_events(u=Depends(current_user),s:Session=Depends(db)):
                     "status":quote.status,
                     "service_items":json.loads(quote.service_items or "[]"),
                 },
+                "quote_history":[quote_json(item) for item in quotes],
             })
         result.append({
             "id":event.id,
@@ -1434,6 +1700,8 @@ def submit_quote(rid:int,x:QuoteIn,u=Depends(current_user),s:Session=Depends(db)
     if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}: raise HTTPException(403,"Provider role required")
     p=s.query(Provider).filter_by(user_id=u.id).first(); r=s.get(QuoteRequest,rid)
     if not p or not r or r.provider_id!=p.id: raise HTTPException(404,"Request not found")
+    if r.status=="ACCEPTED":
+        raise HTTPException(409,"This quote has already been finalized.")
     service_items=[
         {"service":item.service.strip(),"amount":item.amount}
         for item in x.service_items
@@ -1444,6 +1712,10 @@ def submit_quote(rid:int,x:QuoteIn,u=Depends(current_user),s:Session=Depends(db)
         item_total=round(sum(item["amount"] for item in service_items),2)
         if round(x.amount,2)!=item_total:
             raise HTTPException(422,"Quote total must equal the sum of service prices")
+    previous_quotes=s.query(Quote).filter_by(request_id=rid).all()
+    for previous in previous_quotes:
+        if previous.status in {"OFFERED","SUBMITTED"}:
+            previous.status="SUPERSEDED"
     q=Quote(
         request_id=rid,
         provider_id=p.id,
@@ -1451,6 +1723,7 @@ def submit_quote(rid:int,x:QuoteIn,u=Depends(current_user),s:Session=Depends(db)
         service_items=json.dumps(service_items,ensure_ascii=False),
         unit=x.unit,
         notes=x.notes,
+        status="OFFERED",
         valid_until=x.valid_until,
     )
     r.status="QUOTED"; s.add(q); s.commit(); s.refresh(q)

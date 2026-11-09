@@ -30,6 +30,7 @@ import {
   playChatNotification,
   setChatSoundEnabled,
 } from "../../chatNotifications";
+import CustomerProviderChat from "./CustomerProviderChat";
 
 type ProviderProfileProps = {
   id: number;
@@ -62,11 +63,6 @@ export default function ProviderProfile({
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [isReviewFormOpen, setIsReviewFormOpen] = useState(false);
-  const [isMessageFormOpen, setIsMessageFormOpen] = useState(false);
-  const [customMessage, setCustomMessage] = useState("");
-  const [messageSent, setMessageSent] = useState("");
-  const [messageError, setMessageError] = useState("");
-  const [sendingMessage, setSendingMessage] = useState(false);
   const [isSupportChatOpen, setIsSupportChatOpen] = useState(false);
   const [supportMessages, setSupportMessages] = useState<any[]>([]);
   const [supportDraft, setSupportDraft] = useState("");
@@ -219,26 +215,6 @@ export default function ProviderProfile({
       setError(cause.message || "Unable to save your review.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function submitProviderMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSendingMessage(true);
-    setMessageError("");
-    setMessageSent("");
-    try {
-      const result = await api(`/providers/${id}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ message: customMessage }),
-      });
-      setMessageSent(result.message || "Your message was sent to the provider.");
-      setCustomMessage("");
-      setIsMessageFormOpen(false);
-    } catch (cause: any) {
-      setMessageError(cause.message || "Unable to send your message.");
-    } finally {
-      setSendingMessage(false);
     }
   }
 
@@ -658,7 +634,7 @@ export default function ProviderProfile({
           <h2>Contact this provider</h2>
         </div>
         <p>
-          Design your event with dates, functions, and selected services to request a quote, or send a quick custom message.
+          Design your event with dates, functions, and selected services to request a quote, or chat directly with this provider.
         </p>
         {["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) ? (
           <div className="provider-request-actions">
@@ -669,39 +645,11 @@ export default function ProviderProfile({
             >
               Design event & request quote
             </button>
-            <button
-              type="button"
-              className="provider-message-toggle"
-              aria-expanded={isMessageFormOpen}
-              aria-controls="provider-custom-message-form"
-              onClick={() => {
-                setIsMessageFormOpen((isOpen) => !isOpen);
-                setMessageError("");
-              }}
-            >
-              {isMessageFormOpen ? "Close message form" : "Send a custom message"}
-            </button>
-            {isMessageFormOpen && (
-              <form id="provider-custom-message-form" className="provider-custom-message-form" onSubmit={submitProviderMessage}>
-                <label htmlFor="provider-custom-message">Your message <span>*</span></label>
-                <textarea
-                  id="provider-custom-message"
-                  required
-                  minLength={1}
-                  maxLength={2000}
-                  rows={4}
-                  value={customMessage}
-                  onChange={(event) => setCustomMessage(event.target.value)}
-                  placeholder={`Ask ${provider.business_name} about availability, a service, or a custom requirement.`}
-                />
-                <small>Up to 2,000 characters. Do not include passwords, payment-card details, or sensitive documents.</small>
-                {messageError && <p role="alert" className="error">{messageError}</p>}
-                <button type="submit" className="primary" disabled={sendingMessage || !customMessage.trim()}>
-                  {sendingMessage ? "Sending message..." : "Send message"}
-                </button>
-              </form>
-            )}
-            {messageSent && <p role="status" className="provider-message-success">{messageSent}</p>}
+            <CustomerProviderChat
+              providerId={id}
+              customerId={user.id}
+              providerName={provider.business_name}
+            />
           </div>
         ) : user ? (
           <p>Event requests are available to customer accounts.</p>

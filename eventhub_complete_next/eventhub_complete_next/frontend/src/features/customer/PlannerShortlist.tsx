@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
+import QuoteConversation from "../../components/QuoteConversation";
 
 type PlannerShortlistProps = {
   onOpen: (id: number) => void;
@@ -20,6 +21,7 @@ export default function PlannerShortlist({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busyProvider, setBusyProvider] = useState<number | null>(null);
+  const [openNegotiations, setOpenNegotiations] = useState<Set<number>>(() => new Set());
 
   const load = useCallback(async () => {
     setError("");
@@ -47,6 +49,15 @@ export default function PlannerShortlist({
         entry.provider_id === providerId ? { ...entry, note } : entry,
       ),
     );
+  }
+
+  function toggleNegotiation(requestId: number) {
+    setOpenNegotiations((current) => {
+      const next = new Set(current);
+      if (next.has(requestId)) next.delete(requestId);
+      else next.add(requestId);
+      return next;
+    });
   }
 
   async function saveNote(entry: any) {
@@ -165,6 +176,27 @@ export default function PlannerShortlist({
                         </ul>
                       )}
                       {provider.quote?.notes && <p>{provider.quote.notes}</p>}
+                      {provider.request_id && (
+                        <>
+                          <button
+                            type="button"
+                            className="provider-negotiation-toggle"
+                            aria-expanded={openNegotiations.has(provider.request_id)}
+                            onClick={() => toggleNegotiation(provider.request_id)}
+                          >
+                            {openNegotiations.has(provider.request_id)
+                              ? "Close discussion"
+                              : `Message ${provider.business_name} / negotiate price`}
+                          </button>
+                          {openNegotiations.has(provider.request_id) && (
+                            <QuoteConversation
+                              requestId={provider.request_id}
+                              viewerRole="CUSTOMER"
+                              onUpdated={() => void load()}
+                            />
+                          )}
+                        </>
+                      )}
                     </div>
                   )) : <p>No providers selected for this plan.</p>}
                 </div>

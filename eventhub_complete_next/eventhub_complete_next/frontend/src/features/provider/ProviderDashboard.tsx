@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api } from "../../api/client";
 import {
   isChatSoundEnabled,
@@ -11,6 +11,8 @@ import {
   eventTypes,
 } from "../../eventCategories";
 import { otherServiceCategory, serviceCategories } from "../../serviceCategories";
+import QuoteConversation from "../../components/QuoteConversation";
+import ProviderCustomerChat from "./ProviderCustomerChat";
 
 type Offering = {
   title: string;
@@ -52,6 +54,7 @@ export default function ProviderDashboard({
   const [tab, setTab] = useState(initialTab);
   const [enquiries, setEnquiries] = useState<any[]>([]);
   const [customerMessages, setCustomerMessages] = useState<any[]>([]);
+  const [activeMessageCustomerId, setActiveMessageCustomerId] = useState<number | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationNotice, setNotificationNotice] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(isChatSoundEnabled);
@@ -74,7 +77,9 @@ export default function ProviderDashboard({
         incoming.length === 1
           ? incoming[0].notification_type === "SHORTLIST"
             ? `${incoming[0].customer_name} added your profile to their shortlist.`
-            : `${incoming[0].customer_name} sent you an event plan.`
+            : incoming[0].notification_type === "CUSTOMER_MESSAGE"
+            ? `${incoming[0].customer_name} sent you ${incoming[0].event_id ? "a message about an event request" : "a direct message"}.`
+              : `${incoming[0].customer_name} sent you an event plan.`
           : `You have ${incoming.length} new customer notifications.`,
       );
       playChatNotification();
@@ -137,12 +142,15 @@ export default function ProviderDashboard({
       loadCustomerMessages().catch((cause: any) => {
         setError(cause.message || "Unable to refresh customer messages.");
       });
+      refreshEnquiries().catch((cause: any) => {
+        setError(cause.message || "Unable to refresh customer event plans.");
+      });
     };
 
     refreshMessages();
     const interval = window.setInterval(refreshMessages, 5000);
     return () => window.clearInterval(interval);
-  }, [loadCustomerMessages, loading, tab]);
+  }, [loadCustomerMessages, loading, refreshEnquiries, tab]);
 
   useEffect(() => {
     if (loading) return;
@@ -209,6 +217,71 @@ export default function ProviderDashboard({
   const unreadNotificationCount = notifications.filter(
     (item) => !item.read_at,
   ).length;
+
+  const customerThreads = useMemo(() => {
+    const threads = new Map<number, {
+      customerId: number;
+      customerName: string;
+      requests: any[];
+      lastActivity: number;
+      latestMessage: any | null;
+    }>();
+    const getThread = (customerId: number, customerName: string) => {
+      let thread = threads.get(customerId);
+      if (!thread) {
+        thread = {
+          customerId,
+          customerName,
+          requests: [],
+          lastActivity: 0,
+          latestMessage: null,
+        };
+        threads.set(customerId, thread);
+      }
+      return thread;
+    };
+
+    enquiries.forEach((request) => {
+      if (!request.customer_id) return;
+      const thread = getThread(request.customer_id, request.customer_name);
+      thread.requests.push(request);
+      thread.lastActivity = Math.max(
+        thread.lastActivity,
+        new Date(request.created_at || 0).getTime(),
+      );
+    });
+    customerMessages.forEach((item) => {
+      if (!item.customer_id) return;
+      const thread = getThread(item.customer_id, item.customer_name);
+      thread.lastActivity = Math.max(
+        thread.lastActivity,
+        new Date(item.created_at).getTime(),
+      );
+      if (
+        !thread.latestMessage
+        || new Date(item.created_at).getTime() > new Date(thread.latestMessage.created_at).getTime()
+      ) {
+        thread.latestMessage = item;
+      }
+    });
+
+    return Array.from(threads.values())
+      .map((thread) => ({
+        ...thread,
+        requests: thread.requests.sort(
+          (first, second) =>
+            new Date(second.created_at || 0).getTime()
+            - new Date(first.created_at || 0).getTime(),
+        ),
+      }))
+      .sort((first, second) => second.lastActivity - first.lastActivity);
+  }, [customerMessages, enquiries]);
+  const activeCustomerThread = customerThreads.find(
+    (thread) => thread.customerId === activeMessageCustomerId,
+  ) || customerThreads[0];
+  const activeCustomerMessages = activeCustomerThread
+    ? customerMessages.filter((item) => item.customer_id === activeCustomerThread.customerId)
+    : [];
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -344,7 +417,7 @@ export default function ProviderDashboard({
                     </div>
                     <div className="provider-event-enquiry-facts">
                       <span><strong>Guests</strong>{Number(request.guests).toLocaleString("en-IN")}</span>
-                      <span><strong>Customer budget</strong>{request.budget ? `₹${Number(request.budget).toLocaleString("en-IN")}` : "Not provided"}</span>
+                      <span><strong>Customer target budget</strong>{request.budget ? `₹${Number(request.budget).toLocaleString("en-IN")}` : "Not provided"}</span>
                       <span><strong>Services requested</strong>{request.services?.length ? request.services.join(", ") : "No specific services"}</span>
                     </div>
                     {request.details && (
@@ -353,7 +426,7 @@ export default function ProviderDashboard({
                         <p>{request.details}</p>
                       </div>
                     )}
-                    {request.quote ? (
+                    {request.quote && (
                       <div className="provider-event-quote-summary">
                         <strong>Your total quote: ₹{Number(request.quote.amount).toLocaleString("en-IN")}</strong>
                         {request.quote.service_items?.length > 0 && (
@@ -368,28 +441,115 @@ export default function ProviderDashboard({
                         )}
                         {request.quote.notes && <p>{request.quote.notes}</p>}
                       </div>
-                    ) : (
-                      <Quote requestId={request.id} services={request.services || []} onDone={() => void load()} />
                     )}
+                    {request.status !== "ACCEPTED" && (
+                      <Quote
+                        requestId={request.id}
+                        services={request.services || []}
+                        currentQuote={request.quote}
+                        onDone={() => void load()}
+                      />
+                    )}
+                    <QuoteConversation
+                      requestId={request.id}
+                      viewerRole="PROVIDER"
+                      onUpdated={() => void load()}
+                    />
                   </article>
                 ))
               )}
             </div>
           )}
           {tab === "messages" && (
-            <section className="list provider-inbox" aria-label="Customer messages">
-              {customerMessages.length === 0 ? (
-                <div className="card">No custom messages yet. Messages from customers will appear here.</div>
+            <section className="provider-chat-inbox" aria-label="Customer conversations">
+              {customerThreads.length === 0 ? (
+                <div className="card provider-enquiries-empty">
+                  <strong>No customer conversations yet.</strong>
+                  <p>Messages and event plans sent to your provider profile will be grouped by customer here.</p>
+                </div>
               ) : (
-                customerMessages.map((item) => (
-                  <article className="card provider-inbox-message" key={item.id}>
-                    <div className="provider-inbox-message-heading">
-                      <strong>{item.customer_name}</strong>
-                      <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
+                <>
+                  <nav className="provider-chat-customer-list" aria-label="Customers">
+                    <h2>Customers</h2>
+                    {customerThreads.map((thread) => (
+                      <button
+                        type="button"
+                        key={thread.customerId}
+                        className={`provider-chat-customer${(activeCustomerThread?.customerId === thread.customerId ? " active" : "")}`}
+                        aria-current={activeCustomerThread?.customerId === thread.customerId ? "true" : undefined}
+                        onClick={() => setActiveMessageCustomerId(thread.customerId)}
+                      >
+                        <strong>{thread.customerName}</strong>
+                        <span>
+                          {thread.latestMessage?.message
+                            || (thread.requests.length
+                              ? `${thread.requests.length} event plan${thread.requests.length === 1 ? "" : "s"}`
+                              : "New conversation")}
+                        </span>
+                        {thread.requests.length > 0 && (
+                          <small>{thread.requests.length} shared event plan{thread.requests.length === 1 ? "" : "s"}</small>
+                        )}
+                      </button>
+                    ))}
+                  </nav>
+                  {activeCustomerThread && (
+                    <div className="provider-chat-customer-detail">
+                      <header className="provider-chat-customer-heading">
+                        <div>
+                          <p className="provider-dashboard-eyebrow">CUSTOMER CONVERSATION</p>
+                          <h2>{activeCustomerThread.customerName}</h2>
+                          <p>
+                            {activeCustomerThread.requests.length
+                              ? `Event plans shared with your provider profile (${activeCustomerThread.requests.length})`
+                              : "Quick message conversation"}
+                          </p>
+                        </div>
+                      </header>
+                      {activeCustomerThread.requests.length > 0 && (
+                        <section className="provider-chat-event-plans" aria-label={`${activeCustomerThread.customerName}'s shared event plans`}>
+                          <h3>Event plans shared with you</h3>
+                          {activeCustomerThread.requests.map((request) => (
+                            <article className="card provider-chat-event-plan" key={request.id}>
+                              <div className="provider-event-enquiry-heading">
+                                <div>
+                                  <span className="provider-dashboard-eyebrow">EVENT PLAN</span>
+                                  <h3>{request.event_type}</h3>
+                                  <p>{[request.city, request.state].filter(Boolean).join(", ")} · {request.event_date}</p>
+                                </div>
+                                <span className="badge">{request.status}</span>
+                              </div>
+                              <div className="provider-event-enquiry-facts">
+                                <span><strong>Guests</strong>{Number(request.guests).toLocaleString("en-IN")}</span>
+                                <span><strong>Customer target budget</strong>{request.budget ? `₹${Number(request.budget).toLocaleString("en-IN")}` : "Not provided"}</span>
+                                <span><strong>Services requested</strong>{request.services?.length ? request.services.join(", ") : "No specific services"}</span>
+                              </div>
+                              {request.details && (
+                                <div className="provider-event-enquiry-details">
+                                  <strong>Schedule and notes</strong>
+                                  <p>{request.details}</p>
+                                </div>
+                              )}
+                              <QuoteConversation
+                                requestId={request.id}
+                                viewerRole="PROVIDER"
+                                onUpdated={() => {
+                                  void load();
+                                  void loadCustomerMessages();
+                                }}
+                              />
+                            </article>
+                          ))}
+                        </section>
+                      )}
+                      <ProviderCustomerChat
+                        customerId={activeCustomerThread.customerId}
+                        customerName={activeCustomerThread.customerName}
+                        messages={activeCustomerMessages}
+                        onSent={() => void loadCustomerMessages()}
+                      />
                     </div>
-                    <p>{item.message}</p>
-                  </article>
-                ))
+                  )}
+                </>
               )}
             </section>
           )}
@@ -413,26 +573,36 @@ export default function ProviderDashboard({
                     key={item.id}
                   >
                     <div className="provider-inbox-message-heading">
-                      <strong>{item.notification_type === "SHORTLIST" ? "Profile shortlisted" : "New event plan"}</strong>
+                      <strong>
+                        {item.notification_type === "SHORTLIST"
+                          ? "Profile shortlisted"
+                          : item.notification_type === "CUSTOMER_MESSAGE"
+                            ? "New customer message"
+                            : "New event plan"}
+                      </strong>
                       <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
                     </div>
                     <p>
                       {item.notification_type === "SHORTLIST"
                         ? `${item.customer_name} added your profile to their shortlist.`
-                        : `${item.customer_name} sent a ${item.event_type || "new"} event plan${item.city ? ` for ${item.city}${item.state ? `, ${item.state}` : ""}` : ""}${item.event_date ? ` on ${item.event_date}` : ""}.`}
+                        : item.notification_type === "CUSTOMER_MESSAGE"
+                          ? item.event_id
+                            ? `${item.customer_name} sent a message about ${item.event_type || "an event"}${item.city ? ` in ${item.city}${item.state ? `, ${item.state}` : ""}` : ""}.`
+                            : `${item.customer_name} sent you a direct message.`
+                          : `${item.customer_name} sent a ${item.event_type || "new"} event plan${item.city ? ` for ${item.city}${item.state ? `, ${item.state}` : ""}` : ""}${item.event_date ? ` on ${item.event_date}` : ""}.`}
                     </p>
-                    {item.notification_type === "EVENT_PLAN" && (
+                    {["EVENT_PLAN", "CUSTOMER_MESSAGE"].includes(item.notification_type) && (
                       <button
                         type="button"
                         className="primary"
                         onClick={() => {
-                          setTab("enquiries");
+                          setTab("messages");
                           if (!item.read_at) {
                             void markNotificationRead(item.id);
                           }
                         }}
                       >
-                        View enquiry and reply with a quote
+                        Open customer chat and event plans
                       </button>
                     )}
                     {!item.read_at && (
@@ -781,16 +951,20 @@ export default function ProviderDashboard({
 function Quote({
   requestId,
   services,
+  currentQuote,
   onDone,
 }: {
   requestId: number;
   services: string[];
+  currentQuote?: any;
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [serviceItems, setServiceItems] = useState(
-    () => (services.length ? services : [""]).map((service) => ({ service, amount: "" })),
-  );
+  const [serviceItems, setServiceItems] = useState(() => (
+    currentQuote?.service_items?.length
+      ? currentQuote.service_items.map((item: any) => ({ service: item.service, amount: String(item.amount) }))
+      : (services.length ? services : [""]).map((service) => ({ service, amount: "" }))
+  ));
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -801,6 +975,17 @@ function Quote({
   const allItemsPriced = serviceItems.length > 0 && serviceItems.every(
     (item) => item.service.trim() && Number.isFinite(Number(item.amount)) && Number(item.amount) > 0,
   );
+
+  function openQuoteForm() {
+    setServiceItems(
+      currentQuote?.service_items?.length
+        ? currentQuote.service_items.map((item: any) => ({ service: item.service, amount: String(item.amount) }))
+        : (services.length ? services : [""]).map((service) => ({ service, amount: "" })),
+    );
+    setNotes(currentQuote?.notes || "");
+    setError("");
+    setOpen(true);
+  }
 
   async function submit() {
     setError("");
@@ -894,7 +1079,9 @@ function Quote({
       </div>
     </div>
   ) : (
-    <button type="button" className="primary" onClick={() => setOpen(true)}>Prepare quote for customer</button>
+    <button type="button" className="primary" onClick={openQuoteForm}>
+      {currentQuote ? "Revise your quote" : "Prepare quote for customer"}
+    </button>
   );
 }
 

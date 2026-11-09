@@ -13,6 +13,7 @@ import {
   Typography,
 } from "@mui/material";
 import { indiaLocations, indianStates } from "../indiaLocations";
+import QuoteConversation from "../components/QuoteConversation";
 import {
   eventCategories,
   eventCategoryNames,
@@ -1113,7 +1114,7 @@ export default function EventRequestPage({
               {availableCities.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}
             </TextField>
             <TextField label="Number of guests" type="number" required value={guests} onChange={(event) => setGuests(event.target.value)} slotProps={{ htmlInput: { min: 1, max: 100000 } }} />
-            <TextField label="Estimated budget (₹)" type="number" helperText="Optional; leave blank if undecided." value={budget} onChange={(event) => setBudget(event.target.value)} slotProps={{ htmlInput: { min: 0, step: 500 } }} />
+            <TextField label="Target event budget (₹)" type="number" helperText="Optional. Providers you select will see this target and can suggest a suitable quote." value={budget} onChange={(event) => setBudget(event.target.value)} slotProps={{ htmlInput: { min: 0, step: 500 } }} />
             <TextField label="Venue or area (optional)" value={venue} onChange={(event) => setVenue(event.target.value)} slotProps={{ htmlInput: { maxLength: 300 } }} />
             </Box>
           </Box>
@@ -1479,7 +1480,7 @@ export default function EventRequestPage({
             {events.map((item) => (
               <Paper key={item.id} elevation={0} className="event-sent-request-card">
                 <Typography variant="h6">{item.event_type} · {item.city}{item.state ? `, ${item.state}` : ""}</Typography>
-                <Typography color="text.secondary">{item.event_date} · {item.guests} guests · Budget {item.budget ? `₹${item.budget}` : "Not provided"}</Typography>
+                <Typography color="text.secondary">{item.event_date} · {item.guests} guests · Target budget {item.budget ? `₹${Number(item.budget).toLocaleString("en-IN")}` : "Not provided"}</Typography>
                 {item.services?.length > 0 && <Typography sx={{ mt: 1 }}>Services: {item.services.join(", ")}</Typography>}
                 {item.details && <Typography sx={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>{item.details}</Typography>}
                 <Stack spacing={0.5} sx={{ mt: 1 }}>
@@ -1501,6 +1502,17 @@ export default function EventRequestPage({
                         </ul>
                       )}
                       {provider.quote?.notes && <Typography variant="body2">{provider.quote.notes}</Typography>}
+                      {provider.request_id && (
+                        <QuoteConversation
+                          requestId={provider.request_id}
+                          viewerRole="CUSTOMER"
+                          onUpdated={() => {
+                            api("/customer/events").then(setEvents).catch((cause: any) =>
+                              setError(cause.message || "Unable to refresh your event quote."),
+                            );
+                          }}
+                        />
+                      )}
                     </Box>
                   ))}
                 </Stack>

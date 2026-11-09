@@ -35,6 +35,7 @@ EventHub helps customers plan celebrations, discover event-service providers, re
 - **REQ-009 (P1):** A provider can view only enquiries assigned to their provider profile and submit a quote for an assigned request.
 - **REQ-010 (P1):** A customer can retrieve their event requests and see the associated providers, request status, and submitted quotes.
 - **REQ-011 (P2):** A customer can add providers to a shortlist, edit shortlist notes, select a final provider, restore shortlist status, and remove providers.
+- **REQ-012 (P1):** A customer and the assigned provider can exchange messages and price proposals on an event request; providers can revise itemized quotes, and the customer can accept a quote to finalize it as a booking. The conversation, quote revisions, and request status remain visible to both parties.
 
 ### Provider operations and trust
 
@@ -53,6 +54,7 @@ EventHub helps customers plan celebrations, discover event-service providers, re
 - **REQ-020 (P2):** Successful write actions show a contextual toast. Failed writes continue to show an error to the user and do not display a success message.
 - **REQ-021 (P2):** Event-planning and provider profile screens use the shared celebration theme, support narrow screens, and avoid nested scrolling where the page is intended to provide the single scroll surface.
 - **REQ-023 (P2):** Support conversations scroll to the latest message when opened or refreshed. Signed-in customers and administrators see in-app alerts for incoming support messages and can enable a locally remembered sound notification; sound remains opt-in.
+- **REQ-024 (P1):** Providers can use a customer-grouped inbox to read and reply to direct customer messages and review event plans explicitly shared with their provider profile. Each plan keeps its own quote negotiation thread; providers cannot access event plans not assigned to their profile.
 
 ## Core user scenarios and acceptance checks
 
@@ -61,8 +63,10 @@ EventHub helps customers plan celebrations, discover event-service providers, re
 1. **Given** a signed-in customer, **when** they enter valid event details, choose at least one active provider, and submit, **then** the event and provider-specific quote requests are saved.
 2. **Given** a saved request, **when** the selected provider opens enquiries, **then** that provider sees the customer, date, location, guest count, requested services, budget, schedule, and notes in a readable event brief.
 3. **Given** a provider has reviewed the event brief, **when** they submit a quote, **then** they can enter a price for each requested service, add extra service lines, and see the calculated total before sending.
-4. **Given** a provider has submitted an itemized quote, **when** the customer opens their event requests, **then** each service price, the total, quote details, and quote status are visible.
-5. **Given** the event date is in the past or no provider is selected, **when** the customer submits, **then** the past date is rejected by the API or the form blocks submission, a clear error is shown, and no successful-request toast appears.
+4. **Given** a customer has sent an event request to multiple providers, **when** they open that event in the planner, **then** each provider has a separate message/price-negotiation action and private discussion; the customer can include a target price and each provider can respond independently with a quote or revised itemized offer.
+5. **Given** a provider revises an itemized quote, **when** the customer returns to the request, **then** the current offer and prior quote revisions remain visible with the discussion status.
+6. **Given** a customer accepts the current provider quote, **when** finalization succeeds, **then** the quote and request are marked accepted, a booking is created, and the discussion becomes read-only.
+7. **Given** the event date is in the past or no provider is selected, **when** the customer submits, **then** the past date is rejected by the API or the form blocks submission, a clear error is shown, and no successful-request toast appears.
 
 ### B. Provider onboarding and verification (P1)
 
@@ -71,18 +75,25 @@ EventHub helps customers plan celebrations, discover event-service providers, re
 3. **Given** an administrator, **when** they approve or reject a provider, **then** the verification state is saved and reflected in provider data.
 4. **Given** a provider editing their listing, **when** they update profile details and save, **then** the updated fields persist, the user receives save feedback, and the listing returns to pending verification.
 
-### C. Discovery, shortlist, and selection (P1)
+### C. Provider customer inbox (P1)
+
+1. **Given** a provider has direct messages or assigned event requests from multiple customers, **when** they open Messages, **then** each customer appears once and selecting them shows their direct chat and every event plan shared with that provider.
+2. **Given** a provider is viewing a customer's event plans, **when** they review an event, **then** they can see its type, date, location, guest count, target budget, requested services, and customer notes, and can open that event's own quote conversation.
+3. **Given** a customer sent a direct message, **when** the provider replies in the inbox, **then** the reply is stored in the same customer/provider chat and appears in the customer's provider chat.
+4. **Given** a customer has other event plans that were not sent to this provider, **when** the provider opens the inbox, **then** those plans and their details are not returned or shown.
+
+### D. Discovery, shortlist, and selection (P1)
 
 1. **Given** a visitor, **when** they filter providers by location or service, **then** only matching active providers appear.
 2. **Given** a customer, **when** they save a provider, note, or final choice, **then** the shortlist reflects the change after reload.
 3. **Given** a selected final provider, **when** the customer selects a different provider, **then** the previous choice returns to shortlisted status.
 
-### D. Reviews and moderation (P2)
+### E. Reviews and moderation (P2)
 
 1. **Given** a customer on a provider profile, **when** they choose a star value and submit a comment, **then** the review is saved and appears in the public review list.
 2. **Given** a reported review, **when** an administrator hides or dismisses it, **then** the review is no longer exposed as a reported item and public rating totals reflect publication state.
 
-### E. Account feedback (P2)
+### F. Account feedback (P2)
 
 1. **Given** any API request remains pending beyond the loading delay, **when** it completes, **then** the app-wide loading indicator appears and then clears.
 2. **Given** a successful write, **when** the server confirms it, **then** one contextual success toast is shown.
@@ -124,7 +135,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     actor P as Selected provider
 
-    C->>UI: Enter event details and select providers
+    C->>UI: Enter event details, target budget, and select providers
     UI->>API: POST event brief + provider IDs (authenticated)
     API->>API: Validate customer role, date, and active providers
     API->>DB: Save event, service requirements, and quote requests
@@ -138,6 +149,18 @@ sequenceDiagram
     P->>API: POST quote for assigned request
     API->>DB: Save quote and update request status
     API-->>P: Quote submitted
+    C->>API: POST message and optional target price
+    API->>DB: Save negotiation message and notify provider
+    P->>API: POST message or revised itemized quote
+    API->>DB: Save message / quote revision and retain quote history
+    P->>API: GET customer-grouped inbox and assigned event plans
+    API->>DB: Read provider-scoped direct chats and assigned requests only
+    API-->>P: Return customer chats and shared event briefs
+    P->>API: POST reply in a customer direct chat
+    API->>DB: Save provider reply to the customer/provider conversation
+    C->>API: POST accept current quote
+    API->>DB: Mark accepted and create booking
+    API-->>C: Return finalized booking
     C->>API: GET own event requests
     API->>DB: Read customer-owned events, providers, and quotes
     API-->>C: Return replies and quote statuses
@@ -147,6 +170,10 @@ sequenceDiagram
 ```
 
 Customers can view planned events and provider responses from the planner dashboard, edit an existing plan without changing its provider recipients, or create a separate new plan. Providers receive the submitted event brief in their enquiries and can respond with an itemized price for each requested service, additional service lines, a calculated total, and explanatory notes; customers can see the itemized breakdown alongside each provider response.
+
+Each customer-provider request has a private negotiation thread. Customers can message the assigned provider and optionally include a target price; providers can reply in the thread and send revised service-by-service quotes. Both sides see prior messages and quote versions and the current negotiation status. The customer finalizes a provider offer with **Accept quote and finalize**, which creates a booking and locks that thread from further negotiation. The event's target budget is shared with selected providers as a starting point, not a binding offer.
+
+The provider **Messages** inbox groups quick customer chats by customer. It also shows all event plans explicitly shared with that provider, including their event brief and a separate negotiation thread per assigned request. It does not expose a customer's event plans that were not sent to that provider.
 
 Providers receive persistent in-app notifications when a customer newly shortlists their profile or sends them an event plan. The provider dashboard polls for new notifications, shows an unread count and alert, supports optional sound, and lets providers mark notifications as read.
 
@@ -160,6 +187,8 @@ Providers receive persistent in-app notifications when a customer newly shortlis
 | Requirement | Service needs attached to an event; includes service name and details. |
 | QuoteRequest | Connects an event and customer to one selected provider; tracks request status and provider-facing details. |
 | Quote | Provider response to an assigned quote request; includes itemized service prices, their total, notes, and status. |
+| QuoteNegotiationMessage | Customer/provider message on an assigned request; may include the customer's target price and forms the negotiation history. |
+| SupportMessage | Direct customer/provider chat message; provider replies are stored in the same provider-scoped conversation. |
 | Booking | Tracks an accepted quote and event through provider booking lifecycle states. |
 | ProviderNotification | Persists a customer shortlist or event-plan notification for a provider, including read state. |
 | PlannerShortlist | Connects a customer to a provider with notes and shortlisted/selected status. |
