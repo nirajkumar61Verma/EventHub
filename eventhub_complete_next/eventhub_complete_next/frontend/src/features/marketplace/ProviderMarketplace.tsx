@@ -12,6 +12,8 @@ import { indiaLocations, indianStates } from "../../indiaLocations";
 
 type ProviderMarketplaceProps = {
   user: any;
+  initialQuery?: string;
+  initialService?: string;
   onOpen: (id: number) => void;
   onLogin: (providerId: number) => void;
   onSignup: (providerId: number) => void;
@@ -19,14 +21,16 @@ type ProviderMarketplaceProps = {
 
 export default function ProviderMarketplace({
   user,
+  initialQuery = "",
+  initialService = "",
   onOpen,
   onLogin,
   onSignup,
 }: ProviderMarketplaceProps) {
   const [rows, setRows] = useState<any[]>([]);
   const [shortlisted, setShortlisted] = useState<number[]>([]);
-  const [query, setQuery] = useState("");
-  const [service, setService] = useState("");
+  const [query, setQuery] = useState(initialQuery);
+  const [service, setService] = useState(initialService);
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(true);

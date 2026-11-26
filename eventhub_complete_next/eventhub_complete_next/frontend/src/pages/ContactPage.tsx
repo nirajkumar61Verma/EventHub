@@ -7,7 +7,6 @@ const contacts = [
   { name: "Niraj Kumar", phone: "8904832498" },
 ];
 const contactEmail = "juhisingh2707191@gmail.com";
-
 export default function ContactPage() {
   return (
     <Box className="information-page">
@@ -68,7 +67,7 @@ export default function ContactPage() {
             </Button>
           </Paper>
         ))}
-      </Stack>
+      </Stack>dhdj
       <Paper
         elevation={0}
         sx={{

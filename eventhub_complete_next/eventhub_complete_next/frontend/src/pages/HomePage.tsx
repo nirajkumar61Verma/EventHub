@@ -1,8 +1,11 @@
+import { useState, type FormEvent } from "react";
 import {
   Box,
   Button,
+  MenuItem,
   Paper,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import CameraAltOutlinedIcon from "@mui/icons-material/CameraAltOutlined";
@@ -10,15 +13,25 @@ import CelebrationOutlinedIcon from "@mui/icons-material/CelebrationOutlined";
 import EventAvailableOutlinedIcon from "@mui/icons-material/EventAvailableOutlined";
 import MusicNoteOutlinedIcon from "@mui/icons-material/MusicNoteOutlined";
 import RestaurantOutlinedIcon from "@mui/icons-material/RestaurantOutlined";
+import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import SpaOutlinedIcon from "@mui/icons-material/SpaOutlined";
 import TravelExploreOutlinedIcon from "@mui/icons-material/TravelExploreOutlined";
 
 type HomePageProps = {
   onBrowse: () => void;
+  onSearch: (criteria: { service: string; location: string }) => void;
   onSignup: () => void;
   onHelp: () => void;
   onAbout: () => void;
 };
+
+const searchableServices = [
+  "Photography",
+  "Catering",
+  "Decoration",
+  "Music & DJ",
+  "Makeup",
+];
 
 const services = [
   { label: "Photography", icon: <CameraAltOutlinedIcon /> },
@@ -52,28 +65,75 @@ const steps = [
 
 export default function HomePage({
   onBrowse,
+  onSearch,
   onSignup,
   onHelp,
   onAbout,
 }: HomePageProps) {
+  const [service, setService] = useState("");
+  const [location, setLocation] = useState("");
+
+  function searchProviders(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSearch({ service, location: location.trim() });
+  }
+
   return (
     <Box className="home-page">
       <Box className="hero">
         <Box className="hero-copy">
-          <p className="eyebrow">A LITTLE MAGIC FOR YOUR NEXT BIG DAY</p>
+          <p className="eyebrow">YOUR CELEBRATION, ALL IN ONE PLACE</p>
           <Typography variant="h1" className="hero-title">
-            Make your big day feel like <span>magic.</span>
+            Plan the day.<br />Find your <span>people.</span>
           </Typography>
           <Typography color="text.secondary" sx={{ maxWidth: 570, fontSize: 18 }}>
-            From the first idea to the final dance, find the people who make
-            your celebration feel like yours.
+            Organize your event, discover trusted service providers, and keep
+            your plans, replies, and shortlist together.
           </Typography>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 3 }}>
-            <Button variant="contained" onClick={onBrowse}>
-              Find your event team
+          <Box component="form" className="home-provider-search" onSubmit={searchProviders}>
+            <Typography component="label" htmlFor="home-service-search" className="home-search-label">
+              Find the right people for your event
+            </Typography>
+            <Box className="home-search-fields">
+              <TextField
+                id="home-service-search"
+                select
+                size="small"
+                label="Service"
+                value={service}
+                onChange={(event) => setService(event.target.value)}
+                className="home-search-service"
+              >
+                <MenuItem value="">Any service</MenuItem>
+                {searchableServices.map((item) => (
+                  <MenuItem key={item} value={item}>{item}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                size="small"
+                label="City or area"
+                placeholder="e.g. Bengaluru"
+                value={location}
+                onChange={(event) => setLocation(event.target.value)}
+                className="home-search-location"
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                startIcon={<SearchOutlinedIcon />}
+                className="home-search-submit"
+              >
+                Search
+              </Button>
+            </Box>
+          </Box>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 2 }}>
+            <Button variant="contained" onClick={onSignup}>
+              <EventAvailableOutlinedIcon sx={{ mr: 1 }} />
+              Plan my event
             </Button>
-            <Button className="hero-secondary-button" variant="outlined" onClick={onSignup}>
-              Start planning
+            <Button className="hero-secondary-button" variant="outlined" onClick={onBrowse}>
+              Browse all providers
             </Button>
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
@@ -128,7 +188,13 @@ export default function HomePage({
               type="button"
               className="home-service-card"
               elevation={0}
-              onClick={onBrowse}
+              onClick={() =>
+                onSearch({
+                  service:
+                    service.label === "More event services" ? "" : service.label,
+                  location: "",
+                })
+              }
             >
               <span className="home-service-icon">{service.icon}</span>
               <Typography component="span" sx={{ fontWeight: 650 }}>
@@ -144,7 +210,7 @@ export default function HomePage({
           <Box>
             <Typography className="home-eyebrow">A SIMPLE WAY TO GET STARTED</Typography>
             <Typography variant="h4" component="h2" sx={{ fontWeight: 700 }}>
-              From idea to event plan
+              Your whole event, easier to manage
             </Typography>
           </Box>
         </Box>
@@ -165,11 +231,11 @@ export default function HomePage({
         <EventAvailableOutlinedIcon color="primary" fontSize="large" />
         <Box sx={{ flex: 1 }}>
           <Typography variant="h5" component="h2" sx={{ fontWeight: 700 }}>
-            Planning a wedding, birthday, or special gathering?
+            Keep your event moving, all in one place
           </Typography>
           <Typography color="text.secondary">
-            Keep your event details, provider replies, shortlist, and notes
-            together in one place.
+            Plan your event, track provider replies, save your favorites, and
+            keep notes handy as you decide.
           </Typography>
         </Box>
         <Button variant="contained" onClick={onSignup}>

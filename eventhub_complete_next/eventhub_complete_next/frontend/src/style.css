@@ -31,6 +31,11 @@
 .about-demo-note{margin-top:24px!important;padding:14px 16px;border-left:3px solid #987044;background:#f4f0e9}
 .home-page{max-width:1200px;margin:0 auto;padding:0 5% 72px}
 .home-page .hero{padding:88px 0 58px}
+.home-provider-search{max-width:680px;margin-top:26px;padding:16px;border:1px solid #f0dfd5;border-radius:18px;background:#ffffffd9;box-shadow:0 12px 32px #74213f0d}
+.home-search-label{display:block;margin:0 0 10px;color:var(--event-ink);font-size:14px;font-weight:700}
+.home-search-fields{display:grid;grid-template-columns:minmax(145px,.8fr) minmax(170px,1fr) auto;gap:9px;align-items:center}
+.home-search-fields .MuiFormControl-root{width:100%;background:#fff}
+.home-search-submit{min-height:40px;padding-inline:18px!important;white-space:nowrap}
 .home-section{margin-top:48px}
 .home-section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px}
 .home-eyebrow{font-size:12px!important;letter-spacing:1.6px;font-weight:700;color:#72572f;margin-bottom:8px!important}
@@ -54,7 +59,8 @@
 .app-footer{padding:24px max(5%,calc((100% - 1100px)/2));border-top:1px solid #e7e1d7;background:#fff}
 .app-footer button{background:transparent}
 .app-footer button:hover{background:#f4f0e9}
-@media(max-width:700px){.home-page{padding:0 5% 54px}.home-page .hero{padding:54px 0 32px}.home-section{margin-top:36px}.home-section-heading{align-items:flex-start;flex-direction:column}.home-planner-banner{align-items:flex-start;flex-direction:column}.home-planner-banner button{width:100%}}
+@media(max-width:700px){.home-page{padding:0 5% 54px}.home-page .hero{padding:54px 0 32px}.home-search-fields{grid-template-columns:1fr 1fr}.home-search-submit{grid-column:1/-1}.home-section{margin-top:36px}.home-section-heading{align-items:flex-start;flex-direction:column}.home-planner-banner{align-items:flex-start;flex-direction:column}.home-planner-banner button{width:100%}}
+@media(max-width:430px){.home-search-fields{grid-template-columns:1fr}.home-search-submit{grid-column:auto}.home-provider-search{padding:13px}}
 @media(max-width:700px){.information-page{padding:30px 5% 60px}.account-menu-toggle{padding:7px!important}}
 
 :root{--event-berry:#9b315a;--event-berry-dark:#74213f;--event-gold:#c78935;--event-ink:#38232d;--event-muted:#74616a;--event-cream:#fff9f2;--event-border:#f0dfd5}

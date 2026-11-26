@@ -30,6 +30,10 @@ export default function App() {
       ? "signup"
       : "home",
   );
+  const [marketplaceSearch, setMarketplaceSearch] = useState({
+    query: "",
+    service: "",
+  });
   const [providerId, setProviderId] = useState(0);
   const [pendingProviderId, setPendingProviderId] = useState(0);
   const [requestProviderId, setRequestProviderId] = useState(0);
@@ -111,7 +115,14 @@ export default function App() {
       <AppNavigation user={user} onLogout={logout} onPage={setPage} />
       {page === "home" && (
         <HomePage
-          onBrowse={() => setPage("providers")}
+          onBrowse={() => {
+            setMarketplaceSearch({ query: "", service: "" });
+            setPage("providers");
+          }}
+          onSearch={({ service, location }) => {
+            setMarketplaceSearch({ query: location, service });
+            setPage("providers");
+          }}
           onSignup={() =>
             setPage(
               !user
@@ -142,6 +153,8 @@ export default function App() {
       {page === "providers" && (
         <ProviderMarketplace
           user={user}
+          initialQuery={marketplaceSearch.query}
+          initialService={marketplaceSearch.service}
           onOpen={(id) => {
             setProviderId(id);
             setPage("provider-profile");
