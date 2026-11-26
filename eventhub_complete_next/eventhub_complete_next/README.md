@@ -44,20 +44,26 @@ npm start
 
 `npm start` runs the Vite development server on all network interfaces (equivalent to `npm run dev`). Start the backend separately, listening on `0.0.0.0:8000`.
 
-### Access from another laptop on your local network
+### Remote access
 
-1. Connect both laptops to the same trusted Wi-Fi or LAN.
-2. On the host laptop, start the full stack with `docker compose up --build` from the project directory. The frontend and API containers listen on all interfaces.
-3. Find the host laptop's private IPv4 address in PowerShell:
+For remote testers, use the temporary public testing profile below. The base frontend and API ports bind to localhost and should not be exposed directly through your router.
 
-   ```powershell
-   Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.InterfaceOperationalStatus -eq "Up" } | Select-Object InterfaceAlias, IPAddress
-   ```
+The base stack uses development credentials and unencrypted HTTP. Keep it local; use the password-gated public profile only for temporary tests, with unique secrets and non-sensitive data.
 
-4. If Windows Firewall prompts, allow Docker/Node/Python access on **Private networks only**. If needed, add inbound TCP rules for ports `5173` (frontend) and `8000` (API), restricted to the Private profile. Do not expose these ports through your router or to public networks.
-5. On the other laptop, open `http://<host-private-ip>:5173` (for example, `http://192.168.1.25:5173`). The frontend automatically sends API requests to that same host on port `8000`.
+### Temporary public testing URL
 
-The frontend and API use unencrypted HTTP and the compose file contains development credentials. Use this only on a trusted local network; change the default credentials and secrets before using real data.
+For short-lived public testing, the optional `public` Compose profile routes the frontend and API through a password-gated Caddy proxy, then creates a temporary Cloudflare Quick Tunnel URL. Set unique `EVENTHUB_JWT_SECRET` and `EVENTHUB_ADMIN_PASSWORD` values, plus `EVENTHUB_GATE_USER` and a Caddy bcrypt `EVENTHUB_GATE_HASH`, before starting it:
+
+```powershell
+$env:EVENTHUB_JWT_SECRET = "<unique-long-random-secret>"
+$env:EVENTHUB_ADMIN_PASSWORD = "<unique-admin-password>"
+$env:EVENTHUB_GATE_USER = "tester"
+$env:EVENTHUB_GATE_HASH = docker run --rm caddy:2-alpine caddy hash-password --plaintext "<unique-gate-password>"
+docker compose --profile public up --build -d
+docker compose logs -f cloudflared
+```
+
+Open the `trycloudflare.com` URL printed in the tunnel logs and share the gate username/password only with testers. Stop the tunnel and stack with `docker compose --profile public down`. Cloudflare carries the tunnel traffic; do not use this setup for sensitive or production data. On an already-initialized database, changing `EVENTHUB_ADMIN_PASSWORD` does not update the existing admin account password; update it separately before public testing.
 
 Open:
 - Frontend: http://localhost:5173

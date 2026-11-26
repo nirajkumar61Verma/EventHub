@@ -15,16 +15,29 @@ import SignupPage, { type SignupValues } from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
 import HelpPage from "./pages/HelpPage";
 import AboutPage from "./pages/AboutPage";
+import ContactPage from "./pages/ContactPage";
 import HomePage from "./pages/HomePage";
 import AppFooter from "./components/AppFooter";
+import SupportChatWidget from "./components/SupportChatWidget";
 
 export default function App() {
   const [user, setUser] = useState<any>(() =>
     JSON.parse(localStorage.getItem("eh_user") || "null"),
   );
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState(() =>
+    new URLSearchParams(window.location.search).has("ref") &&
+    !localStorage.getItem("eh_token")
+      ? "signup"
+      : "home",
+  );
+  const [marketplaceSearch, setMarketplaceSearch] = useState({
+    query: "",
+    service: "",
+  });
   const [providerId, setProviderId] = useState(0);
+  const [pendingProviderId, setPendingProviderId] = useState(0);
   const [requestProviderId, setRequestProviderId] = useState(0);
+  const [editingEventId, setEditingEventId] = useState<number | undefined>();
   const [pendingRequests, setPendingRequests] = useState(0);
   const [showLoading, setShowLoading] = useState(false);
   const [toast, setToast] = useState<{
@@ -72,15 +85,22 @@ export default function App() {
     localStorage.setItem("eh_token", data.access_token);
     localStorage.setItem("eh_user", JSON.stringify(data.user));
     setUser(data.user);
-    setPage("home");
+    setPage(pendingProviderId ? "provider-profile" : "home");
+    setPendingProviderId(0);
   }
 
   const loadProfile = useCallback(
-    async (): Promise<ProfileValues> => api("/profile"),
+    async (): Promise<ProfileValues> => {
+      const profile = await api("/profile");
+      const nextUser = { ...profile, name: profile.full_name };
+      localStorage.setItem("eh_user", JSON.stringify(nextUser));
+      setUser(nextUser);
+      return profile;
+    },
     [],
   );
 
-  async function saveProfile(values: ProfileValues) {
+  async function saveProfile(values: Omit<ProfileValues, "referral_code">) {
     const updated = await api("/profile", {
       method: "PUT",
       body: JSON.stringify(values),
@@ -95,7 +115,14 @@ export default function App() {
       <AppNavigation user={user} onLogout={logout} onPage={setPage} />
       {page === "home" && (
         <HomePage
-          onBrowse={() => setPage("providers")}
+          onBrowse={() => {
+            setMarketplaceSearch({ query: "", service: "" });
+            setPage("providers");
+          }}
+          onSearch={({ service, location }) => {
+            setMarketplaceSearch({ query: location, service });
+            setPage("providers");
+          }}
           onSignup={() =>
             setPage(
               !user
@@ -122,23 +149,56 @@ export default function App() {
           onHelp={() => setPage("help")}
         />
       )}
+      {page === "contact" && <ContactPage />}
       {page === "providers" && (
         <ProviderMarketplace
           user={user}
+          initialQuery={marketplaceSearch.query}
+          initialService={marketplaceSearch.service}
           onOpen={(id) => {
             setProviderId(id);
             setPage("provider-profile");
           }}
-          onLogin={() => setPage("login")}
+          onLogin={(id) => {
+            setPendingProviderId(id);
+            setPage("login");
+          }}
+          onSignup={(id) => {
+            setPendingProviderId(id);
+            setPage("signup");
+          }}
         />
       )}
       {page === "provider-profile" && (
+        user ? (
         <ProviderProfile
           id={providerId}
           user={user}
           onLogin={() => setPage("login")}
           onRequest={startEventRequest}
+          onOpen={(id) => {
+            setProviderId(id);
+            setPage("provider-profile");
+          }}
         />
+        ) : (
+          <ProviderMarketplace
+            user={user}
+            onOpen={(id) => {
+              setProviderId(id);
+              setPendingProviderId(id);
+              setPage("login");
+            }}
+            onLogin={(id) => {
+              setPendingProviderId(id);
+              setPage("login");
+            }}
+            onSignup={(id) => {
+              setPendingProviderId(id);
+              setPage("signup");
+            }}
+          />
+        )
       )}
       {page === "event-request" &&
         ["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
@@ -146,6 +206,14 @@ export default function App() {
           api={api}
           initialProviderId={requestProviderId || undefined}
           onBrowse={() => setPage("providers")}
+        />
+      )}
+      {page === "event-edit" &&
+        ["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && editingEventId && (
+        <EventRequestPage
+          api={api}
+          eventId={editingEventId}
+          onBrowse={() => setPage("customer-dashboard")}
         />
       )}
       {page === "customer-dashboard" &&
@@ -157,6 +225,10 @@ export default function App() {
           }}
           onBrowse={() => setPage("providers")}
           onPlan={() => startEventRequest()}
+          onEditEvent={(id) => {
+            setEditingEventId(id);
+            setPage("event-edit");
+          }}
         />
       )}
       {page === "become-provider" && user?.role === "CUSTOMER" && (
@@ -171,7 +243,8 @@ export default function App() {
         <LoginPage
           onDone={() => {
             setUser(JSON.parse(localStorage.getItem("eh_user") || "null"));
-            setPage("home");
+            setPage(pendingProviderId ? "provider-profile" : "home");
+            setPendingProviderId(0);
           }}
           onSignup={() => setPage("signup")}
         />
@@ -189,12 +262,24 @@ export default function App() {
           onProfileSave={saveProfile}
         />
       )}
-      {page === "provider" &&
+      {(page === "provider" || page === "provider-edit") &&
         ["PROVIDER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
-        <ProviderDashboard />
+        <ProviderDashboard
+          key={page}
+          initialTab={page === "provider-edit" ? "profile" : "enquiries"}
+        />
       )}
       {page === "admin" && user?.role === "ADMIN" && <AdminDashboard />}
       <AppFooter onPage={setPage} />
+      <SupportChatWidget
+        user={user}
+        onLogin={() => {
+          setPage("login");
+        }}
+        onSignup={() => {
+          setPage("signup");
+        }}
+      />
       <Backdrop
         className="app-loading-backdrop"
         open={showLoading}

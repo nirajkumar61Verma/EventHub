@@ -3,7 +3,9 @@ import AccountCircleOutlinedIcon from "@mui/icons-material/AccountCircleOutlined
 import AdminPanelSettingsOutlinedIcon from "@mui/icons-material/AdminPanelSettingsOutlined";
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import CallOutlinedIcon from "@mui/icons-material/CallOutlined";
 import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
+import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import EventNoteOutlinedIcon from "@mui/icons-material/EventNoteOutlined";
 import ExploreOutlinedIcon from "@mui/icons-material/ExploreOutlined";
 import FavoriteBorderOutlinedIcon from "@mui/icons-material/FavoriteBorderOutlined";
@@ -16,6 +18,7 @@ import PersonAddAlt1OutlinedIcon from "@mui/icons-material/PersonAddAlt1Outlined
 import PersonOutlineOutlinedIcon from "@mui/icons-material/PersonOutlineOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
+import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import {
   Avatar,
   Box,
@@ -86,6 +89,12 @@ export default function AppNavigation({
       : user?.role === "ADMIN"
         ? "EventHub administrator"
         : "Make every moment memorable";
+  const referralLink = user?.referral_code
+    ? `${window.location.origin}/?ref=${encodeURIComponent(user.referral_code)}`
+    : "";
+  const referralMessage = `Join me on EventHub to discover event services and plan celebrations. Sign up here: ${referralLink}`;
+  const whatsappReferralUrl = `https://wa.me/?text=${encodeURIComponent(referralMessage)}`;
+  const emailReferralUrl = `mailto:?subject=${encodeURIComponent("Join me on EventHub")}&body=${encodeURIComponent(referralMessage)}`;
 
   return (
     <>
@@ -153,8 +162,66 @@ export default function AppNavigation({
                     {user.email || "Your EventHub account"}
                   </Typography>
                   <span className="account-menu-role">{roleLabel}</span>
+                  {user.referral_code && (
+                    <Box
+                      sx={{
+                        mt: 1,
+                        px: 1.25,
+                        py: 0.75,
+                        border: "1px solid #f0dfd5",
+                        borderRadius: 1.5,
+                        bgcolor: "#fffaf5",
+                      }}
+                    >
+                      <Typography
+                        component="span"
+                        sx={{ display: "block", color: "#74616a", fontSize: 10 }}
+                      >
+                        YOUR REFERRAL CODE
+                      </Typography>
+                      <Typography
+                        component="strong"
+                        sx={{
+                          color: "#9b315a",
+                          fontFamily: "monospace",
+                          fontSize: 14,
+                          letterSpacing: 1,
+                        }}
+                      >
+                        {user.referral_code}
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
               </Box>
+              {referralLink && (
+                <>
+                  <Divider className="account-menu-divider" />
+                  <Typography className="account-menu-section-label">SHARE YOUR REFERRAL</Typography>
+                  <MenuItem
+                    component="a"
+                    href={whatsappReferralUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="account-menu-item"
+                    onClick={() => setAccountAnchor(null)}
+                  >
+                    <span className="account-menu-item-icon account-menu-whatsapp-icon"><WhatsAppIcon /></span>
+                    <span>Invite by WhatsApp</span>
+                    <ArrowForwardRoundedIcon className="account-menu-item-arrow" />
+                  </MenuItem>
+                  <MenuItem
+                    component="a"
+                    href={emailReferralUrl}
+                    className="account-menu-item"
+                    onClick={() => setAccountAnchor(null)}
+                  >
+                    <span className="account-menu-item-icon"><EmailOutlinedIcon /></span>
+                    <span>Invite by email</span>
+                    <ArrowForwardRoundedIcon className="account-menu-item-arrow" />
+                  </MenuItem>
+                </>
+              )}
               <Divider className="account-menu-divider" />
               <Typography className="account-menu-section-label">YOUR ACCOUNT</Typography>
               <MenuItem className="account-menu-item" onClick={() => navigate("profile")}>
@@ -244,6 +311,7 @@ export default function AppNavigation({
               <div className="drawer-section">
                 <p className="drawer-section-title">DISCOVER</p>
                 {drawerLink("Providers", "providers", <ExploreOutlinedIcon />)}
+                {drawerLink("Contact us", "contact", <CallOutlinedIcon />)}
                 <button className="drawer-link" onClick={() => navigate("help")}>
                   <span className="drawer-link-icon"><HelpOutlineIcon /></span>
                   <span className="drawer-link-label">Help</span>
@@ -255,11 +323,18 @@ export default function AppNavigation({
                   <ArrowForwardRoundedIcon className="drawer-link-arrow" />
                 </button>
               </div>
-              {["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user?.role) && (
+              {(!user || ["CUSTOMER", "CUSTOMER_PROVIDER"].includes(user.role)) && (
                 <div className="drawer-section">
-                  <p className="drawer-section-title">YOUR CELEBRATION</p>
-                  {drawerLink("Plan an event", "event-request", <EventNoteOutlinedIcon />, true)}
-                  {drawerLink("My planner dashboard", "customer-dashboard", <FavoriteBorderOutlinedIcon />)}
+                  <p className="drawer-section-title">
+                    {user ? "YOUR CELEBRATION" : "PLAN YOUR CELEBRATION"}
+                  </p>
+                  {drawerLink(
+                    "Design your event",
+                    user ? "event-request" : "signup",
+                    <EventNoteOutlinedIcon />,
+                    true,
+                  )}
+                  {user && drawerLink("My planner dashboard", "customer-dashboard", <FavoriteBorderOutlinedIcon />)}
                 </div>
               )}
               {user?.role === "CUSTOMER" && (
@@ -272,6 +347,7 @@ export default function AppNavigation({
                 <div className="drawer-section">
                   <p className="drawer-section-title">YOUR BUSINESS</p>
                   {drawerLink("Provider Dashboard", "provider", <DashboardOutlinedIcon />, true)}
+                  {drawerLink("Edit business profile", "provider-edit", <StorefrontOutlinedIcon />)}
                 </div>
               )}
               {user?.role === "ADMIN" && (

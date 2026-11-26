@@ -2,13 +2,16 @@ from datetime import datetime, timedelta, date
 from enum import Enum
 import base64
 import binascii
+import json
 import os
+import re
+import secrets
 import jwt
 from urllib.parse import urlsplit
 from pwdlib import PasswordHash
 from fastapi import FastAPI, Depends, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import AliasChoices, BaseModel, EmailStr, Field
+from pydantic import AliasChoices, BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import create_engine, String, Integer, Float, Boolean, DateTime, Date, ForeignKey, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session, relationship, sessionmaker
 
@@ -30,8 +33,11 @@ class User(Base):
     __tablename__="users"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     phone: Mapped[str] = mapped_column(String(30), default="")
+    alternate_contact_phone: Mapped[str | None] = mapped_column(String(30), default="", nullable=True)
+    preferred_contact_method: Mapped[str] = mapped_column(String(20), default="")
+    preferred_languages: Mapped[str] = mapped_column(Text, default="[]")
     city: Mapped[str] = mapped_column(String(100), default="")
     state: Mapped[str] = mapped_column(String(100), default="")
     address_line1: Mapped[str] = mapped_column(String(240), default="")
@@ -42,6 +48,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(30), default="CUSTOMER")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    referral_code: Mapped[str | None] = mapped_column(String(20), unique=True, index=True, nullable=True)
+    referral_source: Mapped[str] = mapped_column(String(80), default="")
+    referred_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class UserPreferences(Base):
@@ -73,6 +82,9 @@ class Provider(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
     business_name: Mapped[str] = mapped_column(String(180))
     business_title: Mapped[str] = mapped_column(String(180), default="")
+    contact_email: Mapped[str | None] = mapped_column(String(255), default="", nullable=True)
+    contact_phone: Mapped[str | None] = mapped_column(String(30), default="", nullable=True)
+    alternate_contact_phone: Mapped[str | None] = mapped_column(String(30), default="", nullable=True)
     logo_data: Mapped[str] = mapped_column(Text, default="")
     instagram_url: Mapped[str] = mapped_column(String(500), default="")
     facebook_url: Mapped[str] = mapped_column(String(500), default="")
@@ -92,6 +104,38 @@ class Provider(Base):
     review_count: Mapped[int] = mapped_column(Integer, default=0)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verification_status: Mapped[str] = mapped_column(String(30), default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class ProviderOffering(Base):
+    __tablename__="provider_offerings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(60), default="Service")
+    description: Mapped[str] = mapped_column(Text, default="")
+    inclusions: Mapped[str] = mapped_column(Text, default="")
+    price: Mapped[float] = mapped_column(Float)
+    price_unit: Mapped[str] = mapped_column(String(20))
+    minimum_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_types: Mapped[str] = mapped_column(Text, default="[]")
+    all_events: Mapped[bool] = mapped_column(Boolean, default=False)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+class ProviderMessage(Base):
+    __tablename__="provider_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class SupportMessage(Base):
+    __tablename__="support_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    provider_id: Mapped[int | None] = mapped_column(ForeignKey("providers.id"), nullable=True, index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class PlannerShortlist(Base):
@@ -117,6 +161,16 @@ class Event(Base):
     budget: Mapped[float] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(30), default="OPEN")
 
+class ProviderNotification(Base):
+    __tablename__="provider_notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("events.id"), nullable=True, index=True)
+    notification_type: Mapped[str] = mapped_column(String(30))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
 class Requirement(Base):
     __tablename__="event_requirements"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -134,12 +188,22 @@ class QuoteRequest(Base):
     status: Mapped[str] = mapped_column(String(30), default="PENDING")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+class QuoteNegotiationMessage(Base):
+    __tablename__="quote_negotiation_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("quote_requests.id"), index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    proposed_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class Quote(Base):
     __tablename__="quotes"
     id: Mapped[int] = mapped_column(primary_key=True)
     request_id: Mapped[int] = mapped_column(ForeignKey("quote_requests.id"))
     provider_id: Mapped[int] = mapped_column(ForeignKey("providers.id"))
     amount: Mapped[float] = mapped_column(Float)
+    service_items: Mapped[str] = mapped_column(Text, default="[]")
     unit: Mapped[str] = mapped_column(String(30), default="event")
     notes: Mapped[str] = mapped_column(Text, default="")
     valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -203,12 +267,47 @@ def admin(u=Depends(current_user)):
     if u.role!="ADMIN": raise HTTPException(403,"Admin role required")
     return u
 
+def normalize_login_phone(value:str)->str:
+    digits=re.sub(r"\D","",value)
+    if digits.startswith("0091") and len(digits)==14:
+        return digits[4:]
+    if digits.startswith("91") and len(digits)==12:
+        return digits[2:]
+    if digits.startswith("0") and len(digits)==11:
+        return digits[1:]
+    return digits
+
+def validate_login_phone(value:str)->str:
+    phone=value.strip()
+    if not 7<=len(normalize_login_phone(phone))<=15:
+        raise ValueError("Enter a valid mobile number with 7 to 15 digits")
+    return phone
+
+SUPPORTED_CONTACT_METHODS={"","Call","WhatsApp"}
+SUPPORTED_LANGUAGES={"Assamese","Bengali","English","Gujarati","Hindi","Kannada","Kashmiri","Konkani","Malayalam","Marathi","Nepali","Odia","Punjabi","Sanskrit","Tamil","Telugu","Urdu"}
+
+def validate_contact_method(value:str)->str:
+    if value not in SUPPORTED_CONTACT_METHODS:
+        raise ValueError("Choose Call, WhatsApp, or no preference")
+    return value
+
+def validate_preferred_languages(value:list[str])->list[str]:
+    cleaned=list(dict.fromkeys(language.strip() for language in value if language.strip()))
+    if any(language not in SUPPORTED_LANGUAGES for language in cleaned):
+        raise ValueError("Choose from the supported language list")
+    return cleaned
+
 class Signup(BaseModel):
     name:str=Field(validation_alias=AliasChoices("full_name","name"))
-    email:EmailStr
+    email:EmailStr|None=None
     phone:str=Field(min_length=7,max_length=30)
+    alternate_contact_phone:str=Field(default="",max_length=30)
+    preferred_contact_method:str=Field(default="Call",max_length=20)
+    preferred_languages:list[str]=Field(default_factory=list,max_length=10)
     password:str=Field(min_length=6)
     role:str="CUSTOMER"
+    referral_source:str=Field(default="",max_length=80)
+    referral_code:str=Field(default="",max_length=20)
     business_name:str=""
     business_title:str=Field(default="",max_length=180)
     logo_data:str=Field(default="",max_length=700000)
@@ -223,18 +322,66 @@ class Signup(BaseModel):
     state:str=""
     service_radius:int=Field(default=25,ge=1)
     years_experience:int=Field(default=1,ge=0)
+
+    @field_validator("preferred_contact_method")
+    @classmethod
+    def validate_preferred_contact_method(cls,value):
+        return validate_contact_method(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_for_login(cls,value):
+        return validate_login_phone(value)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_optional_email(cls,value):
+        return value.strip() or None if isinstance(value,str) else value
+
+    @field_validator("preferred_languages")
+    @classmethod
+    def validate_preferred_languages(cls,value):
+        return validate_preferred_languages(value)
+
 class ProfileUpdate(BaseModel):
     full_name:str=Field(min_length=1,max_length=120)
-    email:EmailStr
+    email:EmailStr|None=None
     phone:str=Field(min_length=7,max_length=30)
+    alternate_contact_phone:str=Field(default="",max_length=30)
+    preferred_contact_method:str=Field(default="",max_length=20)
+    preferred_languages:list[str]=Field(default_factory=list,max_length=10)
     address_line1:str=Field(min_length=1,max_length=240)
     address_line2:str=Field(default="",max_length=240)
     locality:str=Field(min_length=1,max_length=120)
     city:str=Field(min_length=1,max_length=100)
     state:str=Field(min_length=1,max_length=100)
     postal_code:str=Field(pattern=r"^[1-9][0-9]{5}$")
+
+    @field_validator("preferred_contact_method")
+    @classmethod
+    def validate_preferred_contact_method(cls,value):
+        return validate_contact_method(value)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_for_login(cls,value):
+        return validate_login_phone(value)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_optional_email(cls,value):
+        return value.strip() or None if isinstance(value,str) else value
+
+    @field_validator("preferred_languages")
+    @classmethod
+    def validate_preferred_languages(cls,value):
+        return validate_preferred_languages(value)
 class Login(BaseModel):
-    email:str=Field(min_length=3,max_length=255)
+    identifier:str=Field(
+        min_length=3,
+        max_length=255,
+        validation_alias=AliasChoices("identifier","email","phone"),
+    )
     password:str
 class PasswordChange(BaseModel):
     current_password:str=Field(min_length=1)
@@ -255,11 +402,23 @@ class EventRequestIn(BaseModel):
     services:list[str]=Field(default_factory=list,max_length=20)
     venue:str=Field(default="",max_length=300)
     details:str=Field(default="",max_length=4000)
+class CustomerEventUpdateIn(BaseModel):
+    event_type:str=Field(min_length=1,max_length=100)
+    city:str=Field(min_length=1,max_length=100)
+    state:str=Field(min_length=1,max_length=100)
+    event_date:date
+    guests:int=Field(gt=0,le=100000)
+    budget:float=Field(ge=0,allow_inf_nan=False)
+    services:list[str]=Field(default_factory=list,max_length=20)
+    details:str=Field(default="",max_length=4000)
 class ProviderIn(BaseModel):
     business_name:str=Field(min_length=1,max_length=180)
     category:str=Field(min_length=1,max_length=120)
     city:str=Field(min_length=1,max_length=100)
     state:str=Field(min_length=1,max_length=100)
+    contact_email:EmailStr|None=None
+    contact_phone:str|None=Field(default=None,max_length=30)
+    alternate_contact_phone:str|None=Field(default=None,max_length=30)
     description:str=Field(default="",max_length=4000)
     years_experience:int=Field(default=1,ge=0)
     service_radius:int=Field(default=25,ge=1)
@@ -272,10 +431,87 @@ class ProviderIn(BaseModel):
     youtube_url:str=Field(default="",max_length=500)
     linkedin_url:str=Field(default="",max_length=500)
     website_url:str=Field(default="",max_length=500)
+
+    @field_validator("contact_email",mode="before")
+    @classmethod
+    def empty_contact_email_is_optional(cls,value):
+        if isinstance(value,str) and not value.strip():
+            return None
+        return value
+class ProviderOfferingIn(BaseModel):
+    title:str=Field(min_length=1,max_length=120)
+    category:str=Field(default="Service",min_length=1,max_length=60)
+    description:str=Field(default="",max_length=1000)
+    inclusions:str=Field(default="",max_length=1000)
+    price:float=Field(gt=0,allow_inf_nan=False)
+    price_unit:str=Field(pattern=r"^(plate|person|hour|day|event|package)$")
+    minimum_quantity:int|None=Field(default=None,ge=1,le=100000)
+    event_types:list[str]=Field(default_factory=list,max_length=30)
+    all_events:bool=False
+
+    @field_validator("title","category","price_unit",mode="before")
+    @classmethod
+    def strip_offering_labels(cls,value):
+        return value.strip() if isinstance(value,str) else value
+
+    @field_validator("event_types")
+    @classmethod
+    def clean_event_types(cls,value):
+        cleaned=[item.strip() for item in value if item.strip()]
+        if len(cleaned)!=len(set(item.casefold() for item in cleaned)):
+            raise ValueError("Choose each event type only once")
+        if any(len(item)>100 for item in cleaned):
+            raise ValueError("Event type names must be 100 characters or fewer")
+        return cleaned
+
+class ProviderOfferingsIn(BaseModel):
+    offerings:list[ProviderOfferingIn]=Field(max_length=50)
+class ProviderMessageIn(BaseModel):
+    message:str=Field(min_length=1,max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def message_must_not_be_blank(cls,value):
+        message=value.strip()
+        if not message:
+            raise ValueError("Message cannot be blank")
+        return message
+
+class SupportMessageIn(BaseModel):
+    message:str=Field(min_length=1,max_length=2000)
+    provider_id:int|None=None
+
+    @field_validator("message")
+    @classmethod
+    def support_message_must_not_be_blank(cls,value):
+        message=value.strip()
+        if not message:
+            raise ValueError("Message cannot be blank")
+        return message
+
 class CategoryIn(BaseModel): name:str; description:str=""
 class ServiceIn(BaseModel): category_id:int; name:str
+class QuoteServiceItemIn(BaseModel):
+    service:str=Field(min_length=1,max_length=120)
+    amount:float=Field(gt=0,allow_inf_nan=False)
+
 class QuoteIn(BaseModel):
-    amount:float=Field(gt=0); unit:str="event"; notes:str=""; valid_until:date|None=None
+    amount:float=Field(gt=0,allow_inf_nan=False)
+    unit:str=Field(default="event",pattern=r"^(plate|person|hour|day|event|package)$")
+    notes:str=Field(default="",max_length=2000)
+    service_items:list[QuoteServiceItemIn]=Field(default_factory=list,max_length=30)
+    valid_until:date|None=None
+class QuoteNegotiationMessageIn(BaseModel):
+    message:str=Field(min_length=1,max_length=2000)
+    proposed_amount:float|None=Field(default=None,gt=0,allow_inf_nan=False)
+
+    @field_validator("message")
+    @classmethod
+    def validate_negotiation_message(cls,value):
+        message=value.strip()
+        if not message:
+            raise ValueError("Message cannot be blank")
+        return message
 class ReviewIn(BaseModel):
     rating:float=Field(ge=1,le=5); quality:float=Field(ge=1,le=5); professionalism:float=Field(ge=1,le=5)
     communication:float=Field(ge=1,le=5); value:float=Field(ge=1,le=5); timeliness:float=Field(ge=1,le=5); comment:str=""
@@ -293,7 +529,14 @@ class ReportIn(BaseModel): reason:str
 def startup():
     Base.metadata.create_all(engine)
     with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE quotes ADD COLUMN IF NOT EXISTS service_items TEXT NOT NULL DEFAULT '[]'"))
+        connection.execute(text("ALTER TABLE provider_offerings ADD COLUMN IF NOT EXISTS event_types TEXT NOT NULL DEFAULT '[]'"))
+        connection.execute(text("ALTER TABLE provider_offerings ADD COLUMN IF NOT EXISTS all_events BOOLEAN NOT NULL DEFAULT FALSE"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30) NOT NULL DEFAULT ''"))
+        connection.execute(text("ALTER TABLE users ALTER COLUMN email DROP NOT NULL"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS alternate_contact_phone VARCHAR(30)"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_contact_method VARCHAR(20) NOT NULL DEFAULT ''"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_languages TEXT NOT NULL DEFAULT '[]'"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS city VARCHAR(100) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS state VARCHAR(100) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS address_line1 VARCHAR(240) NOT NULL DEFAULT ''"))
@@ -302,21 +545,44 @@ def startup():
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS postal_code VARCHAR(6) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE"))
         connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(20)"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_source VARCHAR(80) NOT NULL DEFAULT ''"))
+        connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER REFERENCES users(id)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_referral_code ON users (referral_code)"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS provider_type VARCHAR(120) NOT NULL DEFAULT 'General Events'"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS service_radius INTEGER NOT NULL DEFAULT 25"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS state VARCHAR(100) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS business_title VARCHAR(180) NOT NULL DEFAULT ''"))
+        connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255)"))
+        connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(30)"))
+        connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS alternate_contact_phone VARCHAR(30)"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS logo_data TEXT NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS instagram_url VARCHAR(500) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS facebook_url VARCHAR(500) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS youtube_url VARCHAR(500) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS linkedin_url VARCHAR(500) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE providers ADD COLUMN IF NOT EXISTS website_url VARCHAR(500) NOT NULL DEFAULT ''"))
+        connection.execute(text("UPDATE providers SET contact_email=users.email FROM users WHERE providers.user_id=users.id AND providers.contact_email IS NULL"))
+        connection.execute(text("UPDATE providers SET contact_phone=users.phone FROM users WHERE providers.user_id=users.id AND providers.contact_phone IS NULL"))
+        connection.execute(text("UPDATE providers SET alternate_contact_phone=users.alternate_contact_phone FROM users WHERE providers.user_id=users.id AND providers.alternate_contact_phone IS NULL AND users.alternate_contact_phone IS NOT NULL"))
         connection.execute(text("ALTER TABLE events ADD COLUMN IF NOT EXISTS state VARCHAR(100) NOT NULL DEFAULT ''"))
         connection.execute(text("ALTER TABLE reviews ALTER COLUMN booking_id DROP NOT NULL"))
     with SessionLocal() as s:
+        users=s.query(User).all()
+        for user in users:
+            if user.referral_code and re.fullmatch(r"EH-[A-Z0-9]{8}", user.referral_code):
+                continue
+            user.referral_code=generate_referral_code(s)
+            s.flush()
+        s.commit()
         if not s.query(User).filter_by(email=ADMIN_EMAIL).first():
-            s.add(User(name="EventHub Admin",email=ADMIN_EMAIL,password_hash=pwd.hash(ADMIN_PASSWORD),role="ADMIN"))
+            s.add(User(
+                name="EventHub Admin",
+                email=ADMIN_EMAIL,
+                password_hash=pwd.hash(ADMIN_PASSWORD),
+                role="ADMIN",
+                referral_code=generate_referral_code(s),
+            ))
         if s.query(Category).count()==0:
             cats=[("Photography","Photography and event coverage"),("Catering","Food and beverage services"),("Decoration","Stage, floral and venue decoration"),("Music & DJ","DJ, sound and live music"),("Makeup","Bridal and event makeup")]
             s.add_all([Category(name=n,description=d) for n,d in cats])
@@ -325,15 +591,50 @@ def startup():
 @app.get("/health")
 def health(): return {"status":"ok"}
 
+def generate_referral_code(s:Session)->str:
+    while True:
+        code="EH-"+"".join(secrets.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(8))
+        if not s.query(User.id).filter_by(referral_code=code).first():
+            return code
+
+def ensure_referral_code(u:User,s:Session)->str:
+    if not u.referral_code or not re.fullmatch(r"EH-[A-Z0-9]{8}",u.referral_code):
+        u.referral_code=generate_referral_code(s)
+        s.commit()
+    return u.referral_code
+
 @app.post("/api/v1/auth/signup")
 def signup(x:Signup,s:Session=Depends(db)):
-    email=str(x.email).lower()
-    if s.query(User).filter(func.lower(User.email)==email).first(): raise HTTPException(409,"Email already registered")
+    email=str(x.email).lower() if x.email else None
+    if email and s.query(User).filter(func.lower(User.email)==email).first():
+        raise HTTPException(409,"Email already registered")
+    phone=x.phone.strip()
+    phone_digits=normalize_login_phone(phone)
+    existing_phones=s.query(User.phone).filter(User.phone!="").all()
+    if any(normalize_login_phone(existing_phone[0])==phone_digits for existing_phone in existing_phones):
+        raise HTTPException(409,"Mobile number already registered")
     role="PROVIDER" if x.role.upper()=="PROVIDER" else "CUSTOMER"
+    referral_source=x.referral_source.strip()
+    allowed_referral_sources={"Service provider","Customer referral","Social media","Search engine","EventHub website","Friend or family","Other"}
+    if referral_source and referral_source not in allowed_referral_sources:
+        raise HTTPException(400,"Choose a valid answer for how you heard about EventHub")
+    referral_code=x.referral_code.strip().upper()
+    referrer=None
+    if referral_code:
+        referrer=s.query(User).filter(
+            User.referral_code==referral_code,
+            User.role.in_(("CUSTOMER","PROVIDER","CUSTOMER_PROVIDER")),
+            User.active.is_(True),
+        ).first()
+        if not referrer:
+            raise HTTPException(400,"Referral code not found. Check the code and try again.")
     provider_fields={}
     if role=="PROVIDER":
         provider_fields={
             "business_title":x.business_title.strip(),
+            "contact_email":email,
+            "contact_phone":phone,
+            "alternate_contact_phone":x.alternate_contact_phone.strip() or None,
             "logo_data":validate_logo_data(x.logo_data),
             "instagram_url":validate_social_url(x.instagram_url,"Instagram"),
             "facebook_url":validate_social_url(x.facebook_url,"Facebook"),
@@ -341,7 +642,22 @@ def signup(x:Signup,s:Session=Depends(db)):
             "linkedin_url":validate_social_url(x.linkedin_url,"LinkedIn"),
             "website_url":validate_social_url(x.website_url,"Website"),
         }
-    u=User(name=x.name,email=email,phone=x.phone,city=x.city,state=x.state,password_hash=pwd.hash(x.password),role=role); s.add(u); s.commit(); s.refresh(u)
+    u=User(
+        name=x.name,
+        email=email,
+        phone=phone,
+        alternate_contact_phone=x.alternate_contact_phone.strip() or None,
+        preferred_contact_method=x.preferred_contact_method,
+        preferred_languages=json.dumps(x.preferred_languages,ensure_ascii=False),
+        city=x.city,
+        state=x.state,
+        password_hash=pwd.hash(x.password),
+        role=role,
+        referral_code=generate_referral_code(s),
+        referral_source=referral_source,
+        referred_by_user_id=referrer.id if referrer else None,
+    )
+    s.add(u); s.commit(); s.refresh(u)
     if role=="PROVIDER":
         provider_type=x.provider_type.strip() or "General Events"
         p=Provider(
@@ -357,14 +673,26 @@ def signup(x:Signup,s:Session=Depends(db)):
             years_experience=x.years_experience,
         )
         s.add(p); s.commit()
-    return {"access_token":token(u),"user":{"id":u.id,"name":u.name,"full_name":u.name,"email":u.email,"phone":u.phone,"city":u.city,"state":u.state,"role":u.role,"active":u.active,"email_verified":u.email_verified,"created_at":u.created_at.isoformat()}}
+    return {"access_token":token(u),"user":{"id":u.id,"name":u.name,"full_name":u.name,"email":u.email,"phone":u.phone,"alternate_contact_phone":u.alternate_contact_phone,"preferred_contact_method":u.preferred_contact_method,"preferred_languages":x.preferred_languages,"city":u.city,"state":u.state,"role":u.role,"active":u.active,"email_verified":u.email_verified,"referral_code":u.referral_code,"created_at":u.created_at.isoformat()}}
 
 @app.post("/api/v1/auth/login")
 def login(x:Login,s:Session=Depends(db)):
-    u=s.query(User).filter(func.lower(User.email)==str(x.email).lower()).first()
-    if not u or not pwd.verify(x.password,u.password_hash): raise HTTPException(401,"Invalid email or password")
+    identifier=x.identifier.strip()
+    u=s.query(User).filter(func.lower(User.email)==identifier.lower()).first()
+    if not u and "@" not in identifier:
+        phone_digits=normalize_login_phone(identifier)
+        if len(phone_digits)>=7:
+            matches=[
+                account for account in s.query(User).filter(User.phone!="").all()
+                if normalize_login_phone(account.phone)==phone_digits
+            ]
+            if len(matches)>1:
+                raise HTTPException(409,"This mobile number is linked to multiple accounts. Contact support to resolve it.")
+            u=matches[0] if matches else None
+    if not u or not pwd.verify(x.password,u.password_hash): raise HTTPException(401,"Invalid email/mobile number or password")
     if not u.active: raise HTTPException(403,"Account is disabled")
-    return {"access_token":token(u),"user":{"id":u.id,"name":u.name,"full_name":u.name,"email":u.email,"phone":u.phone,"city":u.city,"state":u.state,"role":u.role,"active":u.active,"email_verified":u.email_verified,"created_at":u.created_at.isoformat()}}
+    referral_code=ensure_referral_code(u,s)
+    return {"access_token":token(u),"user":{"id":u.id,"name":u.name,"full_name":u.name,"email":u.email,"phone":u.phone,"alternate_contact_phone":u.alternate_contact_phone,"preferred_contact_method":u.preferred_contact_method,"preferred_languages":json.loads(u.preferred_languages or "[]"),"city":u.city,"state":u.state,"role":u.role,"active":u.active,"email_verified":u.email_verified,"referral_code":referral_code,"created_at":u.created_at.isoformat()}}
 
 def user_profile_json(u:User):
     return {
@@ -372,6 +700,9 @@ def user_profile_json(u:User):
         "full_name":u.name,
         "email":u.email,
         "phone":u.phone,
+        "alternate_contact_phone":u.alternate_contact_phone or "",
+        "preferred_contact_method":u.preferred_contact_method or "",
+        "preferred_languages":json.loads(u.preferred_languages or "[]"),
         "city":u.city,
         "state":u.state,
         "address_line1":u.address_line1,
@@ -381,24 +712,34 @@ def user_profile_json(u:User):
         "role":u.role,
         "active":u.active,
         "email_verified":u.email_verified,
+        "referral_code":u.referral_code,
         "created_at":u.created_at.isoformat(),
     }
 
 @app.get("/api/v1/profile")
-def get_profile(u=Depends(current_user)):
+def get_profile(u=Depends(current_user),s:Session=Depends(db)):
+    ensure_referral_code(u,s)
     return user_profile_json(u)
 
 @app.put("/api/v1/profile")
 def update_profile(x:ProfileUpdate,u=Depends(current_user),s:Session=Depends(db)):
-    email=str(x.email).lower()
-    duplicate=s.query(User).filter(func.lower(User.email)==email,User.id!=u.id).first()
+    email=str(x.email).lower() if x.email else None
+    duplicate=s.query(User).filter(func.lower(User.email)==email,User.id!=u.id).first() if email else None
     if duplicate:
         raise HTTPException(409,"Email already registered")
-    if email!=u.email.lower():
+    if email!=(u.email or "").lower():
         u.email_verified=False
     u.name=x.full_name.strip()
     u.email=email
-    u.phone=x.phone.strip()
+    phone=x.phone.strip()
+    phone_digits=normalize_login_phone(phone)
+    existing_phones=s.query(User.phone).filter(User.id!=u.id,User.phone!="").all()
+    if any(normalize_login_phone(existing_phone[0])==phone_digits for existing_phone in existing_phones):
+        raise HTTPException(409,"Mobile number already registered")
+    u.phone=phone
+    u.alternate_contact_phone=x.alternate_contact_phone.strip() or None
+    u.preferred_contact_method=x.preferred_contact_method
+    u.preferred_languages=json.dumps(x.preferred_languages,ensure_ascii=False)
     u.address_line1=x.address_line1.strip()
     u.address_line2=x.address_line2.strip()
     u.locality=x.locality.strip()
@@ -410,6 +751,8 @@ def update_profile(x:ProfileUpdate,u=Depends(current_user),s:Session=Depends(db)
         if provider:
             provider.city=x.city
             provider.state=x.state
+            provider.contact_phone=u.phone
+            provider.alternate_contact_phone=u.alternate_contact_phone
     s.commit()
     s.refresh(u)
     return user_profile_json(u)
@@ -460,15 +803,85 @@ def providers(q:str="",city:str="",category:str="",verified:bool|None=None,s:Ses
     rows=s.query(Provider).join(User,Provider.user_id==User.id).filter(User.active.is_(True)).all()
     if q: rows=[p for p in rows if q.lower() in (p.business_name+" "+p.description).lower()]
     if city: rows=[p for p in rows if p.city.lower()==city.lower()]
-    if category: rows=[p for p in rows if category.lower() in p.category.lower()]
     if verified is not None: rows=[p for p in rows if p.verified==verified]
-    return [provider_json(p) for p in rows]
+    if not rows:
+        return []
+    provider_ids=[p.id for p in rows]
+    offers=s.query(ProviderOffering).filter(
+        ProviderOffering.provider_id.in_(provider_ids)
+    ).order_by(ProviderOffering.position,ProviderOffering.id).all()
+    offerings_by_provider={}
+    for offer in offers:
+        offerings_by_provider.setdefault(offer.provider_id,[]).append(provider_offering_json(offer))
+    if category:
+        search_category=category.casefold()
+        rows=[
+            p for p in rows
+            if search_category in p.category.casefold()
+            or any(
+                search_category in offer["category"].casefold()
+                or search_category in offer["title"].casefold()
+                for offer in offerings_by_provider.get(p.id,[])
+            )
+        ]
+    return [
+        {**provider_json(p),"offerings":offerings_by_provider.get(p.id,[])}
+        for p in rows
+    ]
 
 @app.get("/api/v1/providers/{pid}")
 def provider(pid:int,s:Session=Depends(db)):
     p=s.get(Provider,pid)
     if not p or not s.query(User).filter_by(id=p.user_id,active=True).first(): raise HTTPException(404,"Provider not found")
     return provider_json(p,include_logo=True)
+
+@app.get("/api/v1/providers/{pid}/referrals")
+def provider_referrals(pid:int,s:Session=Depends(db)):
+    current=s.get(Provider,pid)
+    if not current:
+        raise HTTPException(404,"Provider not found")
+    current_owner=s.query(User).filter_by(id=current.user_id,active=True).first()
+    if not current_owner:
+        raise HTTPException(404,"Provider not found")
+
+    chain=[]
+    seen_user_ids=set()
+    owner=current_owner
+    while owner and owner.id not in seen_user_ids and len(chain)<12:
+        seen_user_ids.add(owner.id)
+        linked_provider=s.query(Provider).filter_by(user_id=owner.id).first()
+        is_public_provider=(
+            linked_provider is not None
+            and (
+                owner.id == current_owner.id
+                or owner.role in {"PROVIDER","CUSTOMER_PROVIDER"}
+            )
+        )
+        chain.append({
+            "provider_id":linked_provider.id if is_public_provider else None,
+            "name":linked_provider.business_name if is_public_provider else "EventHub community member",
+            "kind":"provider" if is_public_provider else "community",
+        })
+        if not owner.referred_by_user_id:
+            break
+        owner=s.get(User,owner.referred_by_user_id)
+        if owner and not owner.active:
+            break
+    chain.reverse()
+
+    referred_rows=s.query(Provider,User).join(
+        User,Provider.user_id==User.id
+    ).filter(
+        User.referred_by_user_id==current_owner.id,
+        User.id!=current_owner.id,
+        User.active.is_(True),
+        User.role.in_(("PROVIDER","CUSTOMER_PROVIDER")),
+    ).order_by(Provider.created_at.desc()).all()
+    referred_providers=[
+        {"id":referred.id,"business_name":referred.business_name,"category":referred.category}
+        for referred,_ in referred_rows
+    ]
+    return {"chain":chain,"referred_providers":referred_providers}
 
 def validate_social_url(value:str,platform:str)->str:
     value=value.strip()
@@ -503,10 +916,26 @@ def validate_logo_data(value:str)->str:
 
 def provider_json(p,include_logo=False):
     return {"id":p.id,"business_name":p.business_name,"category":p.category,"city":p.city,"state":p.state,"description":p.description,
-            "business_title":p.business_title,"instagram_url":p.instagram_url,"facebook_url":p.facebook_url,"youtube_url":p.youtube_url,
+            "business_title":p.business_title,"contact_email":p.contact_email,"contact_phone":"",
+            "alternate_contact_phone":p.alternate_contact_phone,
+            "instagram_url":p.instagram_url,"facebook_url":p.facebook_url,"youtube_url":p.youtube_url,
             "linkedin_url":p.linkedin_url,"website_url":p.website_url,
             "provider_type":p.provider_type,"service_radius":p.service_radius,"years_experience":p.years_experience,"starting_price":p.starting_price,"price_unit":p.price_unit,
             "logo_data":p.logo_data if include_logo else "","rating":p.rating,"review_count":p.review_count,"verified":p.verified,"verification_status":p.verification_status}
+
+def provider_offering_json(offer:ProviderOffering):
+    return {
+        "id":offer.id,
+        "title":offer.title,
+        "category":offer.category,
+        "description":offer.description,
+        "inclusions":offer.inclusions,
+        "price":offer.price,
+        "price_unit":offer.price_unit,
+        "minimum_quantity":offer.minimum_quantity,
+        "event_types":json.loads(offer.event_types or "[]"),
+        "all_events":offer.all_events,
+    }
 
 def refresh_provider_rating(s:Session,p:Provider):
     reviews=s.query(Review).filter_by(provider_id=p.id,published=True).all()
@@ -560,6 +989,11 @@ def add_to_planner_shortlist(x:PlannerShortlistIn,u=Depends(current_user),s:Sess
     else:
         entry=PlannerShortlist(customer_id=u.id,provider_id=p.id,note=x.note.strip())
         s.add(entry)
+        s.add(ProviderNotification(
+            provider_id=p.id,
+            customer_id=u.id,
+            notification_type="SHORTLIST",
+        ))
     s.commit()
     s.refresh(entry)
     owner=s.get(User,p.user_id)
@@ -609,16 +1043,74 @@ def remove_from_planner_shortlist(provider_id:int,u=Depends(current_user),s:Sess
     s.commit()
     return {"removed":True,"provider_id":provider_id}
 
+@app.get("/api/v1/provider/notifications")
+def provider_notifications(u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p:
+        raise HTTPException(404,"Provider profile not found")
+    rows=s.query(ProviderNotification,User,Event).join(
+        User,ProviderNotification.customer_id==User.id
+    ).outerjoin(
+        Event,ProviderNotification.event_id==Event.id
+    ).filter(
+        ProviderNotification.provider_id==p.id,
+        User.active.is_(True),
+    ).order_by(
+        ProviderNotification.created_at.desc(),
+        ProviderNotification.id.desc(),
+    ).limit(100).all()
+    return [{
+        "id":notification.id,
+        "notification_type":notification.notification_type,
+        "customer_name":customer.name,
+        "event_id":event.id if event else None,
+        "event_type":event.event_type if event else None,
+        "event_date":str(event.event_date) if event else None,
+        "city":event.city if event else None,
+        "state":event.state if event else None,
+        "created_at":notification.created_at.isoformat(),
+        "read_at":notification.read_at.isoformat() if notification.read_at else None,
+    } for notification,customer,event in rows]
+
+@app.patch("/api/v1/provider/notifications/{notification_id}/read")
+def mark_provider_notification_read(
+    notification_id:int,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p:
+        raise HTTPException(404,"Provider profile not found")
+    notification=s.query(ProviderNotification).filter_by(
+        id=notification_id,
+        provider_id=p.id,
+    ).first()
+    if not notification:
+        raise HTTPException(404,"Notification not found")
+    if notification.read_at is None:
+        notification.read_at=datetime.utcnow()
+        s.commit()
+    return {"id":notification.id,"read_at":notification.read_at.isoformat()}
+
 @app.put("/api/v1/provider/profile")
 def update_provider(x:ProviderIn,u=Depends(current_user),s:Session=Depends(db)):
     if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}: raise HTTPException(403,"Provider role required")
     p=s.query(Provider).filter_by(user_id=u.id).first()
     if not p: raise HTTPException(404,"Provider profile not found")
-    data=x.model_dump()
+    data=x.model_dump(exclude={"contact_email","contact_phone","alternate_contact_phone"})
     data["logo_data"]=validate_logo_data(data["logo_data"])
     for field,platform in (("instagram_url","Instagram"),("facebook_url","Facebook"),("youtube_url","YouTube"),("linkedin_url","LinkedIn"),("website_url","Website")):
         data[field]=validate_social_url(data[field],platform)
     for k,v in data.items(): setattr(p,k,v)
+    p.contact_email=str(x.contact_email).lower() if x.contact_email else None
+    p.contact_phone=u.phone
+    if x.alternate_contact_phone is not None:
+        u.alternate_contact_phone=x.alternate_contact_phone.strip() or None
+    p.alternate_contact_phone=u.alternate_contact_phone
     p.provider_type=p.category
     p.verification_status="PENDING"; p.verified=False
     s.commit(); return provider_json(p,include_logo=True)
@@ -634,6 +1126,7 @@ def create_provider_profile(x:ProviderIn,u=Depends(current_user),s:Session=Depen
     data["category"]=data["category"].strip()
     data["city"]=data["city"].strip()
     data["state"]=data["state"].strip()
+    u.alternate_contact_phone=(x.alternate_contact_phone or "").strip() or None
     if not data["business_name"] or not data["category"] or not data["city"] or not data["state"]:
         raise HTTPException(400,"Business name, service, city, and state are required")
     data["logo_data"]=validate_logo_data(data["logo_data"])
@@ -643,6 +1136,9 @@ def create_provider_profile(x:ProviderIn,u=Depends(current_user),s:Session=Depen
         user_id=u.id,
         business_name=data["business_name"],
         business_title=data["business_title"].strip(),
+        contact_email=str(x.contact_email).strip().lower() if x.contact_email else None,
+        contact_phone=(x.contact_phone if x.contact_phone is not None else u.phone).strip(),
+        alternate_contact_phone=u.alternate_contact_phone,
         logo_data=data["logo_data"],
         instagram_url=data["instagram_url"],
         facebook_url=data["facebook_url"],
@@ -680,20 +1176,387 @@ def get_provider_profile(u=Depends(current_user),s:Session=Depends(db)):
     if not p: raise HTTPException(404,"Provider profile not found")
     return provider_json(p,include_logo=True)
 
+@app.get("/api/v1/providers/{pid}/offerings")
+def public_provider_offerings(pid:int,s:Session=Depends(db)):
+    p=s.get(Provider,pid)
+    if not p or not s.query(User).filter_by(id=p.user_id,active=True).first():
+        raise HTTPException(404,"Provider not found")
+    offers=s.query(ProviderOffering).filter_by(provider_id=p.id).order_by(ProviderOffering.position,ProviderOffering.id).all()
+    return [provider_offering_json(offer) for offer in offers]
+
+@app.get("/api/v1/provider/offerings")
+def get_provider_offerings(u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p: raise HTTPException(404,"Provider profile not found")
+    offers=s.query(ProviderOffering).filter_by(provider_id=p.id).order_by(ProviderOffering.position,ProviderOffering.id).all()
+    return [provider_offering_json(offer) for offer in offers]
+
+@app.put("/api/v1/provider/offerings")
+def replace_provider_offerings(x:ProviderOfferingsIn,u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p: raise HTTPException(404,"Provider profile not found")
+    for item in x.offerings:
+        if item.all_events and item.event_types:
+            raise HTTPException(422,"Choose either all event types or specific event types for each offering.")
+        if not item.all_events and not item.event_types:
+            raise HTTPException(422,"Choose at least one event type or select All event types for each offering.")
+    s.query(ProviderOffering).filter_by(provider_id=p.id).delete(synchronize_session=False)
+    for position,item in enumerate(x.offerings):
+        s.add(ProviderOffering(
+            provider_id=p.id,
+            title=item.title,
+            category=item.category,
+            description=item.description.strip(),
+            inclusions=item.inclusions.strip(),
+            price=item.price,
+            price_unit=item.price_unit,
+            minimum_quantity=item.minimum_quantity,
+            event_types=json.dumps(item.event_types,ensure_ascii=False),
+            all_events=item.all_events,
+            position=position,
+        ))
+    s.commit()
+    offers=s.query(ProviderOffering).filter_by(provider_id=p.id).order_by(ProviderOffering.position,ProviderOffering.id).all()
+    return [provider_offering_json(offer) for offer in offers]
+
+@app.post("/api/v1/providers/{pid}/messages")
+def send_provider_message(pid:int,x:ProviderMessageIn,u=Depends(current_user),s:Session=Depends(db)):
+    require_customer(u)
+    p=s.get(Provider,pid)
+    if not p or not s.query(User).filter_by(id=p.user_id,active=True).first():
+        raise HTTPException(404,"Provider not found")
+    if p.user_id==u.id:
+        raise HTTPException(400,"You cannot message your own provider profile")
+    message=SupportMessage(
+        customer_id=u.id,
+        provider_id=p.id,
+        sender_id=u.id,
+        message=x.message,
+    )
+    s.add(message)
+    s.add(ProviderNotification(
+        provider_id=p.id,
+        customer_id=u.id,
+        notification_type="CUSTOMER_MESSAGE",
+    ))
+    s.commit()
+    s.refresh(message)
+    return {"id":message.id,"message":"Your message was sent to the provider."}
+
+def support_message_json(message:SupportMessage,s:Session):
+    sender=s.get(User,message.sender_id)
+    return {
+        "id":message.id,
+        "customer_id":message.customer_id,
+        "provider_id":message.provider_id,
+        "sender_id":message.sender_id,
+        "sender_name":sender.name if sender else "Unavailable account",
+        "sender_role":sender.role if sender else "UNKNOWN",
+        "message":message.message,
+        "created_at":message.created_at.isoformat(),
+    }
+
+@app.get("/api/v1/support/messages")
+def customer_support_messages(provider_id:int|None=None,u=Depends(current_user),s:Session=Depends(db)):
+    require_customer(u)
+    if provider_id is not None and not s.get(Provider,provider_id):
+        raise HTTPException(404,"Provider not found")
+    query=s.query(SupportMessage).filter(SupportMessage.customer_id==u.id)
+    if provider_id is None:
+        query=query.filter(SupportMessage.provider_id.is_(None))
+    else:
+        query=query.filter(SupportMessage.provider_id==provider_id)
+    messages=[support_message_json(message,s) for message in query.all()]
+    if provider_id is not None:
+        legacy_rows=s.query(ProviderMessage).filter_by(
+            provider_id=provider_id,
+            customer_id=u.id,
+        ).all()
+        messages.extend({
+            "id":f"legacy-provider-{message.id}",
+            "customer_id":message.customer_id,
+            "provider_id":message.provider_id,
+            "sender_id":message.customer_id,
+            "sender_name":u.name,
+            "sender_role":u.role,
+            "message":message.message,
+            "created_at":message.created_at.isoformat(),
+        } for message in legacy_rows)
+    return sorted(messages,key=lambda message:(message["created_at"],str(message["id"])))
+
+@app.post("/api/v1/support/messages")
+def send_customer_support_message(x:SupportMessageIn,u=Depends(current_user),s:Session=Depends(db)):
+    require_customer(u)
+    if x.provider_id is not None and not s.get(Provider,x.provider_id):
+        raise HTTPException(404,"Provider not found")
+    message=SupportMessage(
+        customer_id=u.id,
+        provider_id=x.provider_id,
+        sender_id=u.id,
+        message=x.message,
+    )
+    s.add(message)
+    s.commit()
+    s.refresh(message)
+    return support_message_json(message,s)
+
+@app.get("/api/v1/provider/messages")
+def provider_messages(
+    customer_id:int|None=None,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p:
+        raise HTTPException(404,"Provider profile not found")
+    if customer_id is not None:
+        customer=s.query(User).filter_by(id=customer_id,active=True).first()
+        has_direct_history=s.query(SupportMessage.id).filter_by(
+            provider_id=p.id,
+            customer_id=customer_id,
+        ).first() or s.query(ProviderMessage.id).filter_by(
+            provider_id=p.id,
+            customer_id=customer_id,
+        ).first()
+        has_assigned_request=s.query(QuoteRequest.id).filter_by(
+            provider_id=p.id,
+            customer_id=customer_id,
+        ).first()
+        if not customer or not (has_direct_history or has_assigned_request):
+            raise HTTPException(404,"Customer conversation not found")
+
+    support_query=s.query(SupportMessage,User).join(
+        User,SupportMessage.customer_id==User.id
+    ).filter(
+        SupportMessage.provider_id==p.id,
+        User.active.is_(True),
+    )
+    legacy_query=s.query(ProviderMessage,User).join(
+        User,ProviderMessage.customer_id==User.id
+    ).filter(
+        ProviderMessage.provider_id==p.id,
+        User.active.is_(True),
+    )
+    if customer_id is not None:
+        support_query=support_query.filter(SupportMessage.customer_id==customer_id)
+        legacy_query=legacy_query.filter(ProviderMessage.customer_id==customer_id)
+
+    messages=[]
+    for message,customer in support_query.all():
+        sender=s.get(User,message.sender_id)
+        messages.append({
+            "id":message.id,
+            "customer_id":message.customer_id,
+            "customer_name":customer.name,
+            "sender_id":message.sender_id,
+            "sender_name":sender.name if sender else "Unavailable account",
+            "sender_role":sender.role if sender else "UNKNOWN",
+            "message":message.message,
+            "created_at":message.created_at.isoformat(),
+        })
+    messages.extend({
+        "id":f"legacy-provider-{message.id}",
+        "customer_id":message.customer_id,
+        "customer_name":customer.name,
+        "sender_id":message.customer_id,
+        "sender_name":customer.name,
+        "sender_role":customer.role,
+        "message":message.message,
+        "created_at":message.created_at.isoformat(),
+    } for message,customer in legacy_query.all())
+    return sorted(messages,key=lambda message:(message["created_at"],str(message["id"])))
+
+@app.post("/api/v1/provider/messages/{customer_id}")
+def reply_to_provider_customer(
+    customer_id:int,
+    x:ProviderMessageIn,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
+    p=s.query(Provider).filter_by(user_id=u.id).first()
+    if not p:
+        raise HTTPException(404,"Provider profile not found")
+    customer=s.query(User).filter_by(id=customer_id,active=True).first()
+    has_direct_history=s.query(SupportMessage.id).filter_by(
+        provider_id=p.id,
+        customer_id=customer_id,
+    ).first() or s.query(ProviderMessage.id).filter_by(
+        provider_id=p.id,
+        customer_id=customer_id,
+    ).first()
+    has_assigned_request=s.query(QuoteRequest.id).filter_by(
+        provider_id=p.id,
+        customer_id=customer_id,
+    ).first()
+    if not customer or not (has_direct_history or has_assigned_request):
+        raise HTTPException(404,"Customer conversation not found")
+    message=SupportMessage(
+        customer_id=customer_id,
+        provider_id=p.id,
+        sender_id=u.id,
+        message=x.message,
+    )
+    s.add(message)
+    s.commit()
+    s.refresh(message)
+    return support_message_json(message,s)
+
 @app.get("/api/v1/provider/enquiries")
 def enquiries(u=Depends(current_user),s:Session=Depends(db)):
+    if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(403,"Provider role required")
     p=s.query(Provider).filter_by(user_id=u.id).first()
     if not p: raise HTTPException(404,"Provider profile not found")
     rs=s.query(QuoteRequest).filter_by(provider_id=p.id).order_by(QuoteRequest.created_at.desc()).all()
     out=[]
     for r in rs:
-        e=s.get(Event,r.event_id); q=s.query(Quote).filter_by(request_id=r.id).first()
+        e=s.get(Event,r.event_id)
+        q=s.query(Quote).filter_by(request_id=r.id).order_by(Quote.created_at.desc(),Quote.id.desc()).first()
+        quote_history=s.query(Quote).filter_by(request_id=r.id).order_by(Quote.created_at.asc(),Quote.id.asc()).all()
         requirements=s.query(Requirement).filter_by(event_id=e.id).all()
-        out.append({"id":r.id,"event_id":r.event_id,"event_type":e.event_type,"city":e.city,"state":e.state,"event_date":str(e.event_date),
+        customer=s.get(User,r.customer_id)
+        if not customer or not customer.active:
+            continue
+        out.append({"id":r.id,"event_id":r.event_id,"customer_id":customer.id,"customer_name":customer.name,
+                    "event_type":e.event_type,"city":e.city,"state":e.state,"event_date":str(e.event_date),
                     "guests":e.guests,"budget":e.budget,"details":r.details,
                     "services":[item.service_name for item in requirements],"status":r.status,
-                    "quote":None if not q else {"id":q.id,"amount":q.amount,"unit":q.unit,"notes":q.notes,"status":q.status}})
+                    "created_at":r.created_at.isoformat(),
+                    "quote_history":[quote_json(item) for item in quote_history],
+                    "quote":None if not q else {
+                        "id":q.id,"amount":q.amount,"unit":q.unit,"notes":q.notes,"status":q.status,
+                        "service_items":json.loads(q.service_items or "[]"),
+                    }})
     return out
+
+def quote_json(quote:Quote):
+    return {
+        "id":quote.id,
+        "amount":quote.amount,
+        "unit":quote.unit,
+        "notes":quote.notes,
+        "status":quote.status,
+        "service_items":json.loads(quote.service_items or "[]"),
+        "created_at":quote.created_at.isoformat(),
+    }
+
+def authorized_quote_request(request_id:int,u:User,s:Session):
+    request=s.get(QuoteRequest,request_id)
+    if not request:
+        raise HTTPException(404,"Event request not found")
+    if u.id==request.customer_id:
+        return request
+    provider=s.query(Provider).filter_by(user_id=u.id).first()
+    if provider and provider.id==request.provider_id:
+        return request
+    raise HTTPException(404,"Event request not found")
+
+def quote_conversation_json(request:QuoteRequest,s:Session):
+    rows=s.query(QuoteNegotiationMessage,User).join(
+        User,QuoteNegotiationMessage.sender_id==User.id
+    ).filter(
+        QuoteNegotiationMessage.request_id==request.id
+    ).order_by(
+        QuoteNegotiationMessage.created_at.asc(),
+        QuoteNegotiationMessage.id.asc(),
+    ).all()
+    quotes=s.query(Quote).filter_by(request_id=request.id).order_by(
+        Quote.created_at.asc(),Quote.id.asc()
+    ).all()
+    return {
+        "request_id":request.id,
+        "status":request.status,
+        "messages":[{
+            "id":message.id,
+            "sender_id":message.sender_id,
+            "sender_name":sender.name,
+            "sender_role":sender.role,
+            "sender_side":"CUSTOMER" if message.sender_id==request.customer_id else "PROVIDER",
+            "message":message.message,
+            "proposed_amount":message.proposed_amount,
+            "created_at":message.created_at.isoformat(),
+        } for message,sender in rows],
+        "quotes":[quote_json(quote) for quote in quotes],
+    }
+
+@app.get("/api/v1/quote-requests/{rid}/conversation")
+def get_quote_conversation(rid:int,u=Depends(current_user),s:Session=Depends(db)):
+    request=authorized_quote_request(rid,u,s)
+    return quote_conversation_json(request,s)
+
+@app.post("/api/v1/quote-requests/{rid}/conversation")
+def send_quote_conversation_message(
+    rid:int,
+    x:QuoteNegotiationMessageIn,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    request=authorized_quote_request(rid,u,s)
+    if request.status=="ACCEPTED":
+        raise HTTPException(409,"This quote has been finalized; the conversation is read-only.")
+    if x.proposed_amount is not None and u.id!=request.customer_id:
+        raise HTTPException(403,"Only the customer can send a target price.")
+    message=QuoteNegotiationMessage(
+        request_id=request.id,
+        sender_id=u.id,
+        message=x.message,
+        proposed_amount=x.proposed_amount,
+    )
+    request.status="NEGOTIATING"
+    s.add(message)
+    if u.id==request.customer_id:
+        s.add(ProviderNotification(
+            provider_id=request.provider_id,
+            customer_id=request.customer_id,
+            event_id=request.event_id,
+            notification_type="CUSTOMER_MESSAGE",
+        ))
+    s.commit()
+    s.refresh(message)
+    return {"id":message.id,"status":request.status}
+
+@app.post("/api/v1/quote-requests/{rid}/accept")
+def accept_quote(rid:int,u=Depends(current_user),s:Session=Depends(db)):
+    require_customer(u)
+    request=s.query(QuoteRequest).filter_by(id=rid,customer_id=u.id).first()
+    if not request:
+        raise HTTPException(404,"Event request not found")
+    if request.status=="ACCEPTED":
+        existing=s.query(Booking).filter_by(quote_id=(
+            s.query(Quote.id).filter_by(request_id=request.id).order_by(
+                Quote.created_at.desc(),Quote.id.desc()
+            ).limit(1).scalar_subquery()
+        )).first()
+        return {"status":"ACCEPTED","booking_id":existing.id if existing else None}
+    quote=s.query(Quote).filter_by(request_id=request.id).order_by(
+        Quote.created_at.desc(),Quote.id.desc()
+    ).first()
+    if not quote:
+        raise HTTPException(409,"The provider has not sent a quote yet.")
+    if quote.status not in {"OFFERED","SUBMITTED"}:
+        raise HTTPException(409,"Only the latest active quote can be accepted.")
+    quote.status="ACCEPTED"
+    request.status="ACCEPTED"
+    booking=Booking(
+        event_id=request.event_id,
+        quote_id=quote.id,
+        customer_id=u.id,
+        provider_id=request.provider_id,
+        amount=quote.amount,
+        status="CONFIRMED",
+    )
+    s.add(booking)
+    s.commit()
+    s.refresh(booking)
+    return {"status":request.status,"booking_id":booking.id}
 
 @app.post("/api/v1/customer/events")
 def create_customer_event(x:EventRequestIn,u=Depends(current_user),s:Session=Depends(db)):
@@ -721,10 +1584,17 @@ def create_customer_event(x:EventRequestIn,u=Depends(current_user),s:Session=Dep
     requested_services=list(dict.fromkeys(service.strip() for service in x.services if service.strip()))
     for service_name in requested_services:
         s.add(Requirement(event_id=event.id,service_name=service_name,details=x.details.strip()))
+    contact_preferences=[]
+    if u.preferred_contact_method:
+        contact_preferences.append(f"Preferred contact method: {u.preferred_contact_method}")
+    preferred_languages=json.loads(u.preferred_languages or "[]")
+    if preferred_languages:
+        contact_preferences.append(f"Comfortable languages: {', '.join(preferred_languages)}")
     request_details="\n".join(
         part for part in (
             f"Venue / location details: {x.venue.strip()}" if x.venue.strip() else "",
             f"Additional event details: {x.details.strip()}" if x.details.strip() else "",
+            "Customer contact preferences (shared for this request):\n" + "\n".join(contact_preferences) if contact_preferences else "",
         ) if part
     )
     requests=[]
@@ -737,6 +1607,12 @@ def create_customer_event(x:EventRequestIn,u=Depends(current_user),s:Session=Dep
             status="PENDING",
         )
         s.add(quote_request)
+        s.add(ProviderNotification(
+            provider_id=provider.id,
+            customer_id=u.id,
+            event_id=event.id,
+            notification_type="EVENT_PLAN",
+        ))
         requests.append({"provider_id":provider.id,"business_name":provider.business_name,"status":"PENDING"})
     s.commit()
     return {
@@ -757,8 +1633,12 @@ def customer_events(u=Depends(current_user),s:Session=Depends(db)):
         provider_responses=[]
         for request in requests:
             provider=s.get(Provider,request.provider_id)
-            quote=s.query(Quote).filter_by(request_id=request.id).first()
+            quotes=s.query(Quote).filter_by(request_id=request.id).order_by(
+                Quote.created_at.asc(),Quote.id.asc()
+            ).all()
+            quote=quotes[-1] if quotes else None
             provider_responses.append({
+                "request_id":request.id,
                 "provider_id":request.provider_id,
                 "business_name":provider.business_name if provider else "Provider unavailable",
                 "status":request.status,
@@ -767,7 +1647,9 @@ def customer_events(u=Depends(current_user),s:Session=Depends(db)):
                     "unit":quote.unit,
                     "notes":quote.notes,
                     "status":quote.status,
+                    "service_items":json.loads(quote.service_items or "[]"),
                 },
+                "quote_history":[quote_json(item) for item in quotes],
             })
         result.append({
             "id":event.id,
@@ -780,18 +1662,72 @@ def customer_events(u=Depends(current_user),s:Session=Depends(db)):
             "status":event.status,
             "details":requests[0].details if requests else "",
             "services":[item.service_name for item in requirements],
+            "provider_ids":[request.provider_id for request in requests],
             "providers":provider_responses,
         })
     return result
+
+@app.put("/api/v1/customer/events/{event_id}")
+def update_customer_event(
+    event_id:int,
+    x:CustomerEventUpdateIn,
+    u=Depends(current_user),
+    s:Session=Depends(db),
+):
+    require_customer(u)
+    event=s.query(Event).filter_by(id=event_id,customer_id=u.id).first()
+    if not event:
+        raise HTTPException(404,"Event not found")
+    if x.event_date < date.today() and x.event_date != event.event_date:
+        raise HTTPException(400,"Event date cannot be changed to a past date")
+    event.event_type=x.event_type.strip()
+    event.city=x.city.strip()
+    event.state=x.state.strip()
+    event.event_date=x.event_date
+    event.guests=x.guests
+    event.budget=x.budget
+    s.query(Requirement).filter_by(event_id=event.id).delete(synchronize_session=False)
+    requested_services=list(dict.fromkeys(service.strip() for service in x.services if service.strip()))
+    for service_name in requested_services:
+        s.add(Requirement(event_id=event.id,service_name=service_name,details=x.details.strip()))
+    for request in s.query(QuoteRequest).filter_by(event_id=event.id,customer_id=u.id).all():
+        request.details=x.details.strip()
+    s.commit()
+    return {"id":event.id,"message":"Your event plan was updated."}
 
 @app.post("/api/v1/quote-requests/{rid}/quote")
 def submit_quote(rid:int,x:QuoteIn,u=Depends(current_user),s:Session=Depends(db)):
     if u.role not in {"PROVIDER","CUSTOMER_PROVIDER"}: raise HTTPException(403,"Provider role required")
     p=s.query(Provider).filter_by(user_id=u.id).first(); r=s.get(QuoteRequest,rid)
     if not p or not r or r.provider_id!=p.id: raise HTTPException(404,"Request not found")
-    q=Quote(request_id=rid,provider_id=p.id,amount=x.amount,unit=x.unit,notes=x.notes,valid_until=x.valid_until)
+    if r.status=="ACCEPTED":
+        raise HTTPException(409,"This quote has already been finalized.")
+    service_items=[
+        {"service":item.service.strip(),"amount":item.amount}
+        for item in x.service_items
+    ]
+    if any(not item["service"] for item in service_items):
+        raise HTTPException(422,"Each quote line must include a service name")
+    if service_items:
+        item_total=round(sum(item["amount"] for item in service_items),2)
+        if round(x.amount,2)!=item_total:
+            raise HTTPException(422,"Quote total must equal the sum of service prices")
+    previous_quotes=s.query(Quote).filter_by(request_id=rid).all()
+    for previous in previous_quotes:
+        if previous.status in {"OFFERED","SUBMITTED"}:
+            previous.status="SUPERSEDED"
+    q=Quote(
+        request_id=rid,
+        provider_id=p.id,
+        amount=round(sum(item["amount"] for item in service_items),2) if service_items else x.amount,
+        service_items=json.dumps(service_items,ensure_ascii=False),
+        unit=x.unit,
+        notes=x.notes,
+        status="OFFERED",
+        valid_until=x.valid_until,
+    )
     r.status="QUOTED"; s.add(q); s.commit(); s.refresh(q)
-    return {"id":q.id,"status":q.status}
+    return {"id":q.id,"amount":q.amount,"status":q.status}
 
 @app.get("/api/v1/provider/bookings")
 def provider_bookings(u=Depends(current_user),s:Session=Depends(db)):
@@ -824,7 +1760,79 @@ def set_availability(day:date,available:bool=True,u=Depends(current_user),s:Sess
 
 @app.get("/api/v1/admin/providers")
 def admin_providers(u=Depends(admin),s:Session=Depends(db)):
-    return [provider_json(p) for p in s.query(Provider).order_by(Provider.created_at.desc()).all()]
+    rows=s.query(Provider,User).join(User,Provider.user_id==User.id).order_by(
+        Provider.created_at.desc()
+    ).all()
+    output=[]
+    for provider,owner in rows:
+        item=provider_json(provider)
+        item.update({
+            "contact_phone":provider.contact_phone or "",
+            "alternate_contact_phone":provider.alternate_contact_phone or "",
+            "created_at":provider.created_at.isoformat(),
+            "owner":{
+                "id":owner.id,
+                "full_name":owner.name,
+                "email":owner.email,
+                "phone":owner.phone,
+                "alternate_contact_phone":owner.alternate_contact_phone or "",
+                "role":owner.role,
+                "active":owner.active,
+                "email_verified":owner.email_verified,
+                "preferred_contact_method":owner.preferred_contact_method,
+                "preferred_languages":json.loads(owner.preferred_languages or "[]"),
+                "city":owner.city,
+                "state":owner.state,
+                "address_line1":owner.address_line1,
+                "address_line2":owner.address_line2,
+                "locality":owner.locality,
+                "postal_code":owner.postal_code,
+                "created_at":owner.created_at.isoformat(),
+            },
+        })
+        output.append(item)
+    return output
+
+@app.get("/api/v1/admin/support/messages")
+def admin_support_messages(u=Depends(admin),s:Session=Depends(db)):
+    rows=s.query(SupportMessage).order_by(
+        SupportMessage.created_at.asc(),SupportMessage.id.asc()
+    ).all()
+    output=[]
+    for message in rows:
+        item=support_message_json(message,s)
+        customer=s.get(User,message.customer_id)
+        provider=s.get(Provider,message.provider_id) if message.provider_id else None
+        item.update({
+            "customer_name":customer.name if customer else "Unavailable account",
+            "customer_phone":customer.phone if customer else "",
+            "provider_name":provider.business_name if provider else "General EventHub support",
+        })
+        output.append(item)
+    return output
+
+@app.post("/api/v1/admin/support/messages/{customer_id}/reply")
+def admin_reply_support_message(
+    customer_id:int,
+    x:SupportMessageIn,
+    u=Depends(admin),
+    s:Session=Depends(db),
+):
+    customer=s.get(User,customer_id)
+    if not customer or customer.role not in {"CUSTOMER","CUSTOMER_PROVIDER"}:
+        raise HTTPException(404,"Customer account not found")
+    if x.provider_id is not None and not s.get(Provider,x.provider_id):
+        raise HTTPException(404,"Provider not found")
+    message=SupportMessage(
+        customer_id=customer.id,
+        provider_id=x.provider_id,
+        sender_id=u.id,
+        message=x.message,
+    )
+    s.add(message)
+    s.commit()
+    s.refresh(message)
+    return support_message_json(message,s)
 
 @app.get("/api/v1/admin/users")
 def admin_users(u=Depends(admin),s:Session=Depends(db)):
@@ -836,10 +1844,19 @@ def admin_users(u=Depends(admin),s:Session=Depends(db)):
         "full_name":account.name,
         "email":account.email,
         "phone":account.phone,
+        "alternate_contact_phone":account.alternate_contact_phone or "",
         "role":account.role,
         "active":account.active,
+        "email_verified":account.email_verified,
+        "preferred_contact_method":account.preferred_contact_method,
+        "preferred_languages":json.loads(account.preferred_languages or "[]"),
         "city":account.city,
         "state":account.state,
+        "address_line1":account.address_line1,
+        "address_line2":account.address_line2,
+        "locality":account.locality,
+        "postal_code":account.postal_code,
+        "created_at":account.created_at.isoformat(),
         "business_name":provider.business_name if provider else "",
     } for account,provider in rows]
 

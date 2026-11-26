@@ -1,27 +1,52 @@
 import { useEffect, useState, type MouseEvent } from "react";
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Typography,
+} from "@mui/material";
 import { api } from "../../api/client";
 import { indiaLocations, indianStates } from "../../indiaLocations";
 
 type ProviderMarketplaceProps = {
   user: any;
+  initialQuery?: string;
+  initialService?: string;
   onOpen: (id: number) => void;
-  onLogin: () => void;
+  onLogin: (providerId: number) => void;
+  onSignup: (providerId: number) => void;
 };
 
 export default function ProviderMarketplace({
   user,
+  initialQuery = "",
+  initialService = "",
   onOpen,
   onLogin,
+  onSignup,
 }: ProviderMarketplaceProps) {
   const [rows, setRows] = useState<any[]>([]);
   const [shortlisted, setShortlisted] = useState<number[]>([]);
-  const [query, setQuery] = useState("");
-  const [service, setService] = useState("");
+  const [query, setQuery] = useState(initialQuery);
+  const [service, setService] = useState(initialService);
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [shortlistError, setShortlistError] = useState("");
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
+  const [requestedProviderId, setRequestedProviderId] = useState(0);
+
+  function viewProvider(providerId: number) {
+    if (!user) {
+      setRequestedProviderId(providerId);
+      setLoginPromptOpen(true);
+      return;
+    }
+    onOpen(providerId);
+  }
 
   useEffect(() => {
     api("/providers")
@@ -68,7 +93,10 @@ export default function ProviderMarketplace({
 
   const services = [
     ...new Set(
-      rows.map((provider) => provider.provider_type || provider.category).filter(Boolean),
+      rows.flatMap((provider) => [
+        provider.provider_type || provider.category,
+        ...(provider.offerings || []).map((offering: { category: string }) => offering.category),
+      ]).filter((type) => type && type.toLowerCase() !== "service"),
     ),
   ].sort((first, second) => first.localeCompare(second));
   const availableCities = [
@@ -83,7 +111,10 @@ export default function ProviderMarketplace({
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = rows.filter((provider) => {
     const type = provider.provider_type || provider.category || "";
-    const matchesService = !service || type === service;
+    const offerings = provider.offerings || [];
+    const matchesService = !service || type === service || offerings.some(
+      (offering: { category: string }) => offering.category === service,
+    );
     const matchesState = !state || provider.state === state;
     const matchesCity =
       !city || String(provider.city || "").toLowerCase() === city.toLowerCase();
@@ -92,6 +123,9 @@ export default function ProviderMarketplace({
       [
         provider.business_name,
         type,
+        ...offerings.map((offering: { title: string; category: string }) =>
+          `${offering.title} ${offering.category}`,
+        ),
         provider.city,
         provider.state,
         provider.description,
@@ -220,12 +254,24 @@ export default function ProviderMarketplace({
           {filtered.map((provider) => {
             const type =
               provider.provider_type || provider.category || "Event services";
+            const additionalServices = [...new Set((provider.offerings || [])
+              .map((offering: { category: string }) => offering.category)
+              .filter((category: string) => category && category.toLowerCase() !== type.toLowerCase()))];
             const isVerified = Boolean(provider.verified);
             return (
               <article
                 className="card provider-card"
                 key={provider.id}
-                onClick={() => onOpen(provider.id)}
+                onClick={() => viewProvider(provider.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    viewProvider(provider.id);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`View ${provider.business_name} profile`}
               >
                 <div className="provider-card-topline">
                   <div className="avatar provider-card-avatar">
@@ -249,6 +295,11 @@ export default function ProviderMarketplace({
                   <span aria-hidden="true">·</span>
                   <span>{provider.city}</span>
                 </div>
+                {additionalServices.length > 0 && (
+                  <div className="provider-card-details">
+                    <span>Also offers: {additionalServices.join(", ")}</span>
+                  </div>
+                )}
                 <div className="provider-card-details">
                   <span>{provider.years_experience || 0} years experience</span>
                   <span>Travel radius {provider.service_radius || 25} km</span>
@@ -260,9 +311,18 @@ export default function ProviderMarketplace({
                 </div>
                 <div className="provider-card-footer">
                   <strong>
-                    <span>Starting from</span>
-                    ₹{provider.starting_price || 0}
-                    <small> / {provider.price_unit || "event"}</small>
+                    {Number(provider.starting_price) > 0 ? (
+                      <>
+                        <span>Starting from</span>
+                        ₹{Number(provider.starting_price).toLocaleString("en-IN")}
+                        <small> / {provider.price_unit || "event"}</small>
+                      </>
+                    ) : (
+                      <>
+                        <span>Pricing</span>
+                        Contact for price
+                      </>
+                    )}
                   </strong>
                   <span className="provider-view-profile">View profile <span aria-hidden="true">→</span></span>
                 </div>
@@ -290,6 +350,41 @@ export default function ProviderMarketplace({
           })}
         </div>
       )}
+      <Dialog
+        open={loginPromptOpen}
+        onClose={() => setLoginPromptOpen(false)}
+        aria-labelledby="provider-login-prompt-title"
+      >
+        <DialogTitle id="provider-login-prompt-title">
+          Sign in to view provider details
+        </DialogTitle>
+        <DialogContent>
+          <Typography>
+            You can browse providers here. Sign in or create an account to see a
+            provider’s full profile, offerings, reviews, and contact options.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setLoginPromptOpen(false)}>Keep browsing</Button>
+          <Button
+            onClick={() => {
+              setLoginPromptOpen(false);
+              onSignup(requestedProviderId);
+            }}
+          >
+            Sign up
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setLoginPromptOpen(false);
+              onLogin(requestedProviderId);
+            }}
+          >
+            Log in
+          </Button>
+        </DialogActions>
+      </Dialog>
     </main>
   );
 }

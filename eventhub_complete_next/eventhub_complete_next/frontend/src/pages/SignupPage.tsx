@@ -3,17 +3,22 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Divider,
   FormControl,
   FormControlLabel,
   FormHelperText,
+  InputLabel,
   InputAdornment,
+  ListItemText,
   MenuItem,
   Radio,
   RadioGroup,
+  Select,
   Stack,
   TextField,
   Typography,
+  type SelectChangeEvent,
 } from "@mui/material";
 import {
   ArrowForwardRounded,
@@ -25,11 +30,16 @@ import {
   WorkOutlineRounded,
 } from "@mui/icons-material";
 import { indiaLocations, indianStates } from "../indiaLocations";
+import { comfortableLanguages } from "../contactPreferences";
+import { otherServiceCategory, serviceCategories } from "../serviceCategories";
 
 export type SignupValues = {
   full_name: string;
   email: string;
   phone: string;
+  alternate_contact_phone: string;
+  preferred_contact_method: string;
+  preferred_languages: string[];
   password: string;
   role: "CUSTOMER" | "PROVIDER";
   business_name: string;
@@ -46,6 +56,8 @@ export type SignupValues = {
   city: string;
   service_radius: number;
   years_experience: number;
+  referral_source: string;
+  referral_code: string;
 };
 
 type SignupPageProps = {
@@ -57,6 +69,9 @@ const initialValues: SignupValues = {
   full_name: "",
   email: "",
   phone: "",
+  alternate_contact_phone: "",
+  preferred_contact_method: "Call",
+  preferred_languages: [],
   password: "",
   role: "CUSTOMER",
   business_name: "",
@@ -73,7 +88,19 @@ const initialValues: SignupValues = {
   city: "",
   service_radius: 25,
   years_experience: 1,
+  referral_source: "",
+  referral_code: "",
 };
+
+const referralSources = [
+  "Service provider",
+  "Customer referral",
+  "Social media",
+  "Search engine",
+  "EventHub website",
+  "Friend or family",
+  "Other",
+];
 
 const fieldSx = {
   "& .MuiOutlinedInput-root": {
@@ -83,7 +110,13 @@ const fieldSx = {
 };
 
 export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
-  const [values, setValues] = useState(initialValues);
+  const [values, setValues] = useState<SignupValues>(() => ({
+    ...initialValues,
+    referral_code: new URLSearchParams(window.location.search)
+      .get("ref")
+      ?.trim()
+      .toUpperCase() || "",
+  }));
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -303,13 +336,13 @@ export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
                 }}
               >
                 <TextField
-                  label="Email address"
+                  label="Email address (optional)"
                   type="email"
                   autoComplete="email"
-                  required
                   fullWidth
                   value={values.email}
                   onChange={(event) => update("email", event.target.value)}
+                  helperText="Optional. You can sign in with your mobile number instead."
                   sx={fieldSx}
                   slotProps={{
                     input: {
@@ -322,7 +355,7 @@ export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
                   }}
                 />
                 <TextField
-                  label="Phone number"
+                  label="Primary mobile number"
                   type="tel"
                   autoComplete="tel"
                   required
@@ -342,6 +375,67 @@ export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
                   }}
                 />
               </Box>
+              <TextField
+                label="Alternative contact mobile number (optional)"
+                type="tel"
+                autoComplete="tel"
+                fullWidth
+                value={values.alternate_contact_phone}
+                onChange={(event) => update("alternate_contact_phone", event.target.value)}
+                helperText="Your primary number is used to sign in. For providers, this alternative number is shown to customers on your public profile."
+                sx={fieldSx}
+                slotProps={{
+                  htmlInput: { maxLength: 30 },
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PhoneIphoneRounded fontSize="small" />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
+              />
+              {!isProvider && (
+                <>
+                  <TextField
+                    select
+                    label="Preferred way to contact you"
+                    fullWidth
+                    value={values.preferred_contact_method}
+                    onChange={(event) => update("preferred_contact_method", event.target.value)}
+                    helperText="Phone call is selected by default; you can change this now or later in your profile."
+                    sx={fieldSx}
+                  >
+                    <MenuItem value="">No preference</MenuItem>
+                    <MenuItem value="Call">Phone call</MenuItem>
+                    <MenuItem value="WhatsApp">WhatsApp</MenuItem>
+                  </TextField>
+                  <FormControl fullWidth sx={fieldSx}>
+                    <InputLabel id="signup-languages-label">Languages you are comfortable with (optional)</InputLabel>
+                    <Select
+                      labelId="signup-languages-label"
+                      multiple
+                      value={values.preferred_languages}
+                      label="Languages you are comfortable with (optional)"
+                      onChange={(event: SelectChangeEvent<string[]>) => {
+                        const selected = event.target.value;
+                        update("preferred_languages", typeof selected === "string" ? selected.split(",") : selected);
+                      }}
+                      renderValue={(selected) => selected.join(", ")}
+                    >
+                      {comfortableLanguages.map((language) => (
+                        <MenuItem key={language} value={language}>
+                          <Checkbox checked={values.preferred_languages.includes(language)} />
+                          <ListItemText primary={language} />
+                        </MenuItem>
+                      ))}
+                    </Select>
+                    <FormHelperText>
+                      Shared only with providers you contact about an event; you can edit this later.
+                    </FormHelperText>
+                  </FormControl>
+                </>
+              )}
               <TextField
                 label="Password"
                 type="password"
@@ -435,6 +529,38 @@ export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
                   ))}
                 </TextField>
               </Box>
+              <Divider>
+                <Typography variant="caption" sx={{ color: "text.secondary", px: 1 }}>
+                  HELP US GROW
+                </Typography>
+              </Divider>
+              <TextField
+                select
+                label="How did you hear about EventHub?"
+                fullWidth
+                value={values.referral_source}
+                onChange={(event) => update("referral_source", event.target.value)}
+                helperText="Optional — this helps us understand how people find EventHub."
+                sx={fieldSx}
+              >
+                <MenuItem value="">Select an answer (optional)</MenuItem>
+                {referralSources.map((source) => (
+                  <MenuItem key={source} value={source}>
+                    {source}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Referral code (optional)"
+                fullWidth
+                value={values.referral_code}
+                onChange={(event) =>
+                  update("referral_code", event.target.value.toUpperCase())
+                }
+                helperText="Enter a code shared by an EventHub customer or service provider."
+                slotProps={{ htmlInput: { maxLength: 20, autoCapitalize: "characters" } }}
+                sx={fieldSx}
+              />
 
               {isProvider && (
                 <>
@@ -494,18 +620,34 @@ export default function SignupPage({ onSignup, onLogin }: SignupPageProps) {
                   <TextField label="LinkedIn URL" type="url" fullWidth value={values.linkedin_url} onChange={(event) => update("linkedin_url", event.target.value)} placeholder="https://linkedin.com/company/yourbusiness" sx={fieldSx} />
                   <TextField label="Website URL" type="url" fullWidth value={values.website_url} onChange={(event) => update("website_url", event.target.value)} placeholder="https://yourbusiness.com" sx={fieldSx} />
                   <TextField
-                    label="Service you provide"
+                    select
+                    label="Primary service you provide"
                     required
                     fullWidth
-                    slotProps={{ htmlInput: { maxLength: 120 } }}
-                    value={values.provider_type}
-                    onChange={(event) =>
-                      update("provider_type", event.target.value)
-                    }
-                    placeholder="e.g. Mehndi artist, Dancer, Anchor, DJ"
-                    helperText="Enter any event service, including one not shown in a list."
+                    value={serviceCategories.some((service) => service === values.provider_type) ? values.provider_type : values.provider_type ? otherServiceCategory : ""}
+                    onChange={(event) => update("provider_type", event.target.value)}
+                    helperText="Choose the service customers should use to find your profile."
                     sx={fieldSx}
-                  />
+                  >
+                    <MenuItem value="">Select a service</MenuItem>
+                    {serviceCategories.map((service) => (
+                      <MenuItem key={service} value={service}>{service}</MenuItem>
+                    ))}
+                    <MenuItem value={otherServiceCategory}>{otherServiceCategory}</MenuItem>
+                  </TextField>
+                  {values.role === "PROVIDER" && values.provider_type && !serviceCategories.some((service) => service === values.provider_type) && (
+                    <TextField
+                      label="Name your other service"
+                      required
+                      fullWidth
+                      slotProps={{ htmlInput: { maxLength: 120 } }}
+                      value={values.provider_type === otherServiceCategory ? "" : values.provider_type}
+                      onChange={(event) => update("provider_type", event.target.value)}
+                      placeholder="Enter the service customers should search for"
+                      helperText="Use the name customers are likely to look for."
+                      sx={fieldSx}
+                    />
+                  )}
                   <TextField
                     label="Business description"
                     multiline
